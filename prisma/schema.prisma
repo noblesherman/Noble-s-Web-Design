@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String             @id @default(cuid())
+  email            String             @unique
+  name             String?
+  passwordHash     String?
+  githubId         String?            @unique
+  role             UserRole           @default(CLIENT)
+  tempPinHash      String?
+  tempPinExpiresAt DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  client           Client?
+  projectAssignments ProjectAssignment[]
+  contractAssignments ContractAssignment[]
+  contractSignatures ContractSignature[]
+  tickets          Ticket[]
+  files            ClientFile[]
+  teamMembers      TeamMember[]
+  uptimeTargets    UptimeTarget[]     @relation("OwnerTargets")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  sid       String   @unique
+  data      String
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Client {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  company   String?
+  website   String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user          User             @relation(fields: [userId], references: [id])
+}
+
+model Project {
+  id              String              @id @default(cuid())
+  name            String
+  description     String?
+  status          String              @default("active")
+  statusBadge     String?
+  timelineLabel   String?
+  nextMilestone   String?
+  launchDate      DateTime?
+  budgetUsed      Float?
+  stagingUrl      String?
+  designSystemUrl String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  assignments ProjectAssignment[]
+  activities  ProjectActivity[]
+  documents   ProjectDocument[]
+  files       ClientFile[]
+}
+
+model ProjectAssignment {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model ProjectActivity {
+  id         String   @id @default(cuid())
+  projectId  String
+  title      String
+  category   String?
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectDocument {
+  id        String   @id @default(cuid())
+  projectId String
+  title     String
+  status    String?
+  amount    Float?
+  dueDate   DateTime?
+  url       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Lead {
+  id           String   @id @default(cuid())
+  name         String
+  businessName String?
+  email        String
+  projectType  String?
+  priority     String?
+  scope        String?
+  timeline     String?
+  budget       String?
+  notes        String?
+  replied      Boolean  @default(false)
+  repliedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Contract {
+  id                  String                 @id @default(cuid())
+  title               String
+  version             String
+  body                String
+  docusealEmbedUrl    String?
+  templatePdfUrl      String?
+  templatePath        String?
+  signaturePlacements Json?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  assignments ContractAssignment[]
+  signatures  ContractSignature[]
+}
+
+model ContractAssignment {
+  id          String             @id @default(cuid())
+  contractId  String
+  userId      String
+  status      String             @default("pending")
+  signatureId String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signature ContractSignature? @relation("AssignmentSignature", fields: [signatureId], references: [id])
+
+  @@unique([signatureId])
+
+  @@unique([contractId, userId])
+}
+
+model ContractSignature {
+  id              String             @id @default(cuid())
+  contractId      String
+  userId          String
+  typedName       String?
+  email           String?
+  signedAt        DateTime?
+  signedIp        String?
+  signatureUrl    String?
+  pdfUrl          String?
+  contractVersion String?
+  signatureUuid   String?
+  status          String             @default("signed")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  contract  Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignment ContractAssignment? @relation("AssignmentSignature")
+}
+
+model UptimeTarget {
+  id                 String      @id @default(cuid())
+  url                String
+  checkInterval      Int
+  lastStatus         Int?
+  lastChecked        DateTime?
+  lastResponseTimeMs Int?
+  alertActive        Boolean     @default(false)
+  consecutiveFailures Int        @default(0)
+  ownerUserId        String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  owner User? @relation("OwnerTargets", fields: [ownerUserId], references: [id])
+  logs  UptimeLog[]
+}
+
+model UptimeLog {
+  id           String      @id @default(cuid())
+  targetId     String
+  timestamp    DateTime    @default(now())
+  statusCode   Int?
+  responseTime Int?
+  passed       Boolean
+
+  target UptimeTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+}
+
+model SiteSettings {
+  id                 String   @id
+  primaryAlertEmail  String?
+  secondaryAlertEmail String?
+  alertThreshold     Int      @default(2)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Ticket {
+  id           String   @id @default(cuid())
+  userId       String
+  title        String
+  description  String
+  priority     String
+  category     String
+  status       String   @default("Open")
+  adminMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  closedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ClientFile {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String?
+  name      String
+  fileUrl   String
+  fileType  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("FileAttachment")
+}
+
+model TeamMember {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  email       String
+  role        String
+  phone       String
+  notes       String?
+  headshotUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}

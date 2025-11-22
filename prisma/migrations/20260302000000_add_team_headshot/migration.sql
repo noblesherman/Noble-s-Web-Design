@@ -1,0 +1,1 @@
+ALTER TABLE "TeamMember" ADD COLUMN IF NOT EXISTS "headshotUrl" TEXT;

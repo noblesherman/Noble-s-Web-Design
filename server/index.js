@@ -376,7 +376,10 @@ const handleClientAuthComplete = async (req, res) => {
 
 // BASIC MIDDLEWARE
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: [
+    'https://noblesweb.design',
+    'https://api.noblesweb.design',
+  ],
   credentials: true,
 }));
 
@@ -1772,6 +1775,6 @@ startUptimeMonitor({
 });
 
 // START SERVER
-app.listen(PORT, () => {
-  console.log(`API running at http://localhost:${PORT}`);
+app.listen(process.env.PORT, '0.0.0.0', () => {
+  console.log(`API running on 0.0.0.0:${process.env.PORT}`);
 });

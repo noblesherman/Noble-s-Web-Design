@@ -7,12 +7,14 @@ import ProjectDetailSection from '../components/projects/ProjectDetailSection';
 import ProjectGallery from '../components/projects/ProjectGallery';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { resolveGallerySources } from '../lib/projectAssets';
 
 export const ProjectDetail: React.FC = () => {
   const { id } = useParams();
   const project = PROJECTS_DATA.find((p) => p.id === id);
   const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 });
+  const gallerySources = project ? resolveGallerySources(project) : null;
 
   if (!project) return <div className="pt-32 text-center text-white">Project not found</div>;
 
@@ -62,7 +64,10 @@ export const ProjectDetail: React.FC = () => {
           </ProjectDetailSection>
         </div>
 
-        <ProjectGallery images={project.gallery} />
+        <ProjectGallery
+          images={gallerySources?.primary || []}
+          fallbackImages={gallerySources?.fallback}
+        />
 
         <div className="mt-16 flex items-center justify-between bg-surface border border-white/10 rounded-2xl p-6 flex-col md:flex-row gap-4">
           <div className="space-y-1">

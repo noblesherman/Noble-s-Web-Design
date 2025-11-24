@@ -40,14 +40,14 @@ export const PROJECTS: Project[] = [
   },
   {
     id: '4',
-    title: 'Noble Studio v1',
-    slug: 'noble-studio-v1',
-    client: 'Noble',
-    type: 'Design System',
-    year: '2023',
-    description: 'Previous iteration of the studio portfolio focusing on dark mode aesthetics.',
-    tags: ['Design System', 'React'],
-    image: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=1600&auto=format&fit=crop',
+    title: 'Noble Web Designs Platform',
+    slug: 'noble-web-designs',
+    client: 'Noble Web Designs',
+    type: 'Platform',
+    year: '2024',
+    description: 'Built a full-backend platform where web developers manage clients, onboard projects, and send contracts for PDF signatures in one place.',
+    tags: ['React', 'Express', 'Prisma', 'Supabase', 'PDFKit'],
+    image: 'https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1600&auto=format&fit=crop',
     featured: false,
   }
 ];

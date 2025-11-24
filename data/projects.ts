@@ -5,6 +5,9 @@ export type ProjectData = {
   fullDescription: string;
   heroImage: string;
   gallery: string[];
+  assetsBase?: string;
+  heroFilename?: string;
+  galleryFilenames?: string[];
   tags: string[];
   technologies: string[];
   year: string;
@@ -12,6 +15,8 @@ export type ProjectData = {
   category: string;
   externalUrl?: string;
 };
+
+const projectAssetsBase = (id: string) => `/images/projects/${id}`;
 
 export const PROJECTS_DATA: ProjectData[] = [
   {
@@ -28,6 +33,9 @@ export const PROJECTS_DATA: ProjectData[] = [
       "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1600&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1522199785564-6e0cf66e4300?q=80&w=1600&auto=format&fit=crop",
     ],
+    assetsBase: projectAssetsBase("food4philly"),
+    heroFilename: "hero.jpg",
+    galleryFilenames: ["gallery-1.jpg", "gallery-2.jpg"],
     tags: ["Accessibility", "Donor UX", "Nonprofit"],
     technologies: ["Next.js", "Tailwind", "Framer Motion", "CMS"],
     externalUrl: "https://food4philly.org",
@@ -46,6 +54,9 @@ export const PROJECTS_DATA: ProjectData[] = [
       "https://images.unsplash.com/photo-1527437934671-61474b530017?q=80&w=1600&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1500043202000-5fe6f3d0890e?q=80&w=1600&auto=format&fit=crop",
     ],
+    assetsBase: projectAssetsBase("kensure-logistics"),
+    heroFilename: "hero.jpg",
+    galleryFilenames: ["gallery-1.jpg", "gallery-2.jpg"],
     tags: ["SEO", "Motion", "B2B"],
     technologies: ["React", "Tailwind", "Framer Motion", "HubSpot"],
     externalUrl: "https://freightkensure.com",
@@ -64,26 +75,33 @@ export const PROJECTS_DATA: ProjectData[] = [
       "https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=1600&auto=format&fit=crop",
       "https://images.unsplash.com/photo-1499028344343-cd173ffc68a9?q=80&w=1600&auto=format&fit=crop",
     ],
+    assetsBase: projectAssetsBase("martinos"),
+    heroFilename: "hero.jpg",
+    galleryFilenames: ["gallery-1.jpg", "gallery-2.jpg"],
     tags: ["Mobile First", "E-comm", "Photography"],
     technologies: ["Next.js", "Stripe", "Headless CMS"],
     externalUrl: "https://martinosofelmont.net",
   },
   {
-    id: "noble-studio-v1",
-    title: "Noble Studio v1",
-    client: "Noble",
-    category: "Design System",
-    year: "2023",
-    shortDescription: "Previous iteration of the studio portfolio focusing on dark mode aesthetics.",
+    id: "noble-web-designs",
+    title: "Noble Web Designs Platform",
+    client: "Noble Web Designs",
+    category: "Platform",
+    year: "2024",
+    shortDescription:
+      "A full-backend platform for web developers to manage clients, sign PDFs, and onboard projects without leaving the portal.",
     fullDescription:
-      "An exploration into calm motion, deep surfaces, and typography balance. Served as the foundation for the current studio site.",
-    heroImage: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=1600&auto=format&fit=crop",
+      "I rebuilt the Noble Web Designs site into a working platform. Web developers can invite clients, guide onboarding, capture signatures on contracts, and keep documents synced to secure storage. The Express, Prisma, and Supabase backend powers the marketing site, admin dashboard, and client portal so everyone sees the same source of truth.",
+    heroImage: "https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1600&auto=format&fit=crop",
     gallery: [
-      "https://images.unsplash.com/photo-1525182008055-f88b95ff7980?q=80&w=1600&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1498050108023-c5249f4df085?q=80&w=1600&auto=format&fit=crop",
+      "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?q=80&w=1600&auto=format&fit=crop",
+      "https://images.unsplash.com/photo-1556761175-4b46a572b786?q=80&w=1600&auto=format&fit=crop",
     ],
-    tags: ["Design System", "Brand"],
-    technologies: ["React", "Storybook", "Framer Motion"],
+    assetsBase: projectAssetsBase("noble-web-designs"),
+    heroFilename: "hero.jpg",
+    galleryFilenames: ["gallery-1.jpg", "gallery-2.jpg"],
+    tags: ["Client Portal", "PDF eSign", "Onboarding"],
+    technologies: ["React", "Express", "Prisma", "Supabase", "PDFKit"],
     externalUrl: "https://noblesweb.design",
   },
 ];

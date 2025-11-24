@@ -2,12 +2,23 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import type { ProjectData } from '../../data/projects';
+import { resolveHeroSources } from '../../lib/projectAssets';
 
 type Props = {
   project: ProjectData;
 };
 
 export const ProjectCard: React.FC<Props> = ({ project }) => {
+  const { primary: heroSrc, fallback: heroFallback } = resolveHeroSources(project);
+
+  const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget;
+    if (heroFallback && img.dataset.fallbackApplied !== 'true') {
+      img.dataset.fallbackApplied = 'true';
+      img.src = heroFallback;
+    }
+  };
+
   return (
     <Link to={`/projects/${project.id}`} className="group block">
       <motion.div
@@ -18,11 +29,12 @@ export const ProjectCard: React.FC<Props> = ({ project }) => {
         className="relative aspect-[4/3] overflow-hidden rounded-xl bg-surface mb-6 border border-white/10 group-hover:border-white/30 transition-colors"
       >
         <motion.img
-          src={project.heroImage}
+          src={heroSrc}
           alt={project.title}
           className="w-full h-full object-cover"
           whileHover={{ scale: 1.05 }}
           transition={{ duration: 0.6 }}
+          onError={handleImageError}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background/70 to-transparent opacity-70 group-hover:opacity-40 transition-opacity" />
         <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end">

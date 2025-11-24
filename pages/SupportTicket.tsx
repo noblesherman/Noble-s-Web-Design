@@ -19,7 +19,7 @@ type Ticket = {
 
 export const SupportTicket: React.FC = () => {
   const { ticketId } = useParams<{ ticketId: string }>();
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
   const navigate = useNavigate();
   const panelClass = "rounded-2xl border border-white/10 bg-surface/80 backdrop-blur-xl shadow-[0_16px_60px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-white/20";
 

@@ -5,10 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const envDir = path.resolve(__dirname, 'frontend');
     const env = loadEnv(mode, envDir, '');
-    const fallbackApi = mode === 'production'
-      ? 'https://api.noblesweb.design'
-      : 'http://localhost:4000';
-    const apiUrl = env.VITE_API_URL || env.API_URL || fallbackApi;
+    const apiUrl = env.VITE_API_URL || env.API_URL || 'https://api.noblesweb.design';
 
     return {
       envDir,

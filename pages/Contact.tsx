@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export const Contact: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || '';
+  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : '');
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',

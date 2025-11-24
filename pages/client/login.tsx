@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { motion } from "framer-motion";
 
 const ClientLogin: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");

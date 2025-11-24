@@ -151,7 +151,17 @@ export const startUptimeMonitor = (options) => {
     }
   };
 
-  // initial run and schedule
-  poll();
-  setInterval(poll, pollFrequencyMs);
+  let intervalId;
+  const startLoop = async () => {
+    try {
+      await poll();
+      intervalId = setInterval(poll, pollFrequencyMs);
+    } catch (err) {
+      console.error('Failed to start uptime monitor loop', err);
+      setTimeout(startLoop, Math.min(pollFrequencyMs, 30000));
+    }
+  };
+
+  startLoop();
+  return () => intervalId && clearInterval(intervalId);
 };

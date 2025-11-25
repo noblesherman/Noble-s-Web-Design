@@ -5,7 +5,7 @@
  * @property {() => Promise<import('@prisma/client').SiteSettings>} loadSettings
  * @property {string} smtpFrom
  * @property {number} timeoutMs
- * @property {number} pollFrequencyMs
+ * @property {number} pollFrequencyMs}
  * @property {(opts: { to: string, message: string }) => Promise<void>} sendSms
  */
 
@@ -69,9 +69,18 @@ const runHttpCheck = async (url, timeoutMs) => {
 };
 
 /**
- * Compute uptime score.
+ * Compute uptime score (new system).
  */
 const computeScore = (logs) => {
+  if (!logs.length) return 100;
+  const passed = logs.filter((l) => l.passed).length;
+  return Math.round((passed / logs.length) * 1000) / 10;
+};
+
+/**
+ * Old function restored so server/index.js stops exploding.
+ */
+export const calculateUptimePercentage = (logs) => {
   if (!logs.length) return 100;
   const passed = logs.filter((l) => l.passed).length;
   return Math.round((passed / logs.length) * 1000) / 10;
@@ -100,9 +109,7 @@ export const startUptimeMonitor = (options) => {
 
       const settings = await loadSettings();
       const alertThreshold = settings.alertThreshold || 2;
-      const emailRecipients = [settings.primaryAlertEmail, settings.secondaryAlertEmail].filter(
-        Boolean
-      );
+      const emailRecipients = [settings.primaryAlertEmail, settings.secondaryAlertEmail].filter(Boolean);
 
       const smsRecipients = settings.smsAlertNumber || null;
 
@@ -116,7 +123,6 @@ export const startUptimeMonitor = (options) => {
 
           const result = await runHttpCheck(target.url, timeoutMs);
 
-          // Store log
           await prisma.uptimeLog.create({
             data: {
               targetId: target.id,
@@ -132,7 +138,6 @@ export const startUptimeMonitor = (options) => {
 
           let alertActive = target.alertActive;
 
-          // ⛔ DOWN ALERT
           if (!result.passed && nextFailures >= alertThreshold && !alertActive) {
             alertActive = true;
 
@@ -145,7 +150,6 @@ export const startUptimeMonitor = (options) => {
               </div>
             `;
 
-            // EMAIL
             await safeSendEmail({
               mailer,
               to: emailRecipients,
@@ -154,7 +158,6 @@ export const startUptimeMonitor = (options) => {
               from: smtpFrom,
             });
 
-            // SMS
             await safeSendSMS(
               sendSms,
               smsRecipients,
@@ -162,7 +165,6 @@ export const startUptimeMonitor = (options) => {
             );
           }
 
-          // ✅ RESTORED ALERT
           if (result.passed && alertActive) {
             alertActive = false;
 
@@ -189,7 +191,6 @@ export const startUptimeMonitor = (options) => {
             );
           }
 
-          // SCORE CALCULATION
           const logs = await prisma.uptimeLog.findMany({
             where: { targetId: target.id },
             select: { passed: true },
@@ -197,7 +198,6 @@ export const startUptimeMonitor = (options) => {
 
           const score = computeScore(logs);
 
-          // Update target
           await prisma.uptimeTarget.update({
             where: { id: target.id },
             data: {

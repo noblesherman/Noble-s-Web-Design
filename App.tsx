@@ -25,6 +25,10 @@ import ProjectDetail from './pages/ProjectDetail';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
 
+// Vercel analytics imports
+import { SpeedInsights } from "@vercel/speed-insights/react";
+import { Analytics } from "@vercel/analytics/react";
+
 // Scroll to top on route change
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -36,10 +40,15 @@ const ScrollToTop = () => {
   return null;
 };
 
-const App: React.FC = () => {
+const App = () => {
   return (
     <Router>
       <ScrollToTop />
+
+      {/* Analytics + Insights must go high in the app */}
+      <SpeedInsights />
+      <Analytics />
+
       <div className="flex flex-col min-h-screen font-sans bg-background text-text">
         <Navbar />
 

@@ -1,3 +1,4 @@
+// server/index.js
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -218,6 +219,72 @@ const ensureSiteSettings = async () => {
     },
   });
 };
+
+const isRecordNotFoundError = (err) => {
+  const message = err?.message || '';
+  return err?.code === 'P2025' || /Record (to )?update not found/i.test(message);
+};
+
+const resolveSessionExpiration = (session) => {
+  const expires = session?.cookie?.expires;
+  if (expires) return new Date(expires);
+  const maxAge = session?.cookie?.originalMaxAge;
+  if (typeof maxAge === 'number') return new Date(Date.now() + maxAge);
+  return new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+};
+
+class SafePrismaSessionStore extends PrismaSessionStore {
+  async safeCreateSessionRecord(sid, session) {
+    try {
+      const expiresAt = resolveSessionExpiration(session);
+      let dataString;
+      try {
+        dataString = this.serializer.stringify(session);
+      } catch (err) {
+        console.error('Session serialize failed', err);
+        dataString = JSON.stringify(session || {});
+      }
+
+      const createData = { sid, expiresAt, data: dataString };
+      if (this.dbRecordIdIsSessionId) {
+        createData.id = sid;
+      } else if (typeof this.dbRecordIdFunction === 'function') {
+        const generated = this.dbRecordIdFunction(sid);
+        if (generated) createData.id = generated;
+      }
+
+      await this.prisma[this.sessionModelName].create({ data: createData });
+    } catch (err) {
+      console.error('Session recreate failed', err);
+    }
+  }
+
+  async set(sid, session, callback) {
+    try {
+      return await super.set(sid, session, callback);
+    } catch (err) {
+      if (isRecordNotFoundError(err)) {
+        await this.safeCreateSessionRecord(sid, session);
+        if (callback) callback();
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async touch(sid, session, callback) {
+    try {
+      return await super.touch(sid, session, callback);
+    } catch (err) {
+      if (isRecordNotFoundError(err)) {
+        await this.safeCreateSessionRecord(sid, session);
+        if (callback) callback();
+        return;
+      }
+      throw err;
+    }
+  }
+}
 
 const sendEmail = async ({ to, subject, html }) => {
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
@@ -444,7 +511,7 @@ app.use(
       domain: isProd ? '.noblesweb.design' : undefined,
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
-    store: new PrismaSessionStore(prisma, {
+    store: new SafePrismaSessionStore(prisma, {
       checkPeriod: 2 * 60 * 1000,
       dbRecordIdIsSessionId: false,
     }),
@@ -561,574 +628,149 @@ const requireClient = (req, res, next) => {
 
 // CLIENT REGISTRATION IS INVITE-ONLY
 app.post('/api/clients/register', (_req, res) => {
-  return res.status(403).json({ error: 'Registration disabled. Contact admin for access.' });
+  return res.status(403).json({ error: 'Registration is invite-only' });
 });
 
-// Admin issues PIN for invite-only onboarding
-app.post('/api/admin/clients/issue-pin', requireAdmin, async (req, res) => {
+// CLIENT LOGIN (EMAIL + PASSWORD)
+app.post('/api/clients/login', async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
   try {
-    const { email, name } = req.body;
-    if (!email) return fail(res, 400, 'Email required');
-
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
-    const tempPinHash = await bcrypt.hash(pin, 10);
-    const tempPinExpiresAt = new Date(Date.now() + PIN_EXP_MINUTES * 60 * 1000);
-
-    const user = await prisma.user.upsert({
-      where: { email },
-      update: {
-        name,
-        tempPinHash,
-        tempPinExpiresAt,
-        passwordHash: null,
-        role: 'CLIENT',
-      },
-      create: {
-        email,
-        name,
-        tempPinHash,
-        tempPinExpiresAt,
-        role: 'CLIENT',
-      },
-    });
-
-    await ensureClientRecord({ userId: user.id, name });
-
-    ok(res, {
-      user: { id: user.id, email: user.email, name: user.name },
-      pin,
-      expiresAt: tempPinExpiresAt,
-      message: 'PIN issued',
-    });
-    // fire-and-forget email
-    sendInviteEmail({ to: user.email, pin, name: user.name });
-  } catch (err) {
-    console.error('issue pin error', err);
-    fail(res, 500, 'Unable to issue pin');
-  }
-});
-
-// CLIENT: start invite flow (email + PIN)
-app.post('/api/client/auth/start', handleClientAuthStart);
-app.post('/api/clients/auth/start', handleClientAuthStart); // backwards compat
-
-// CLIENT: complete invite (password setup)
-app.post('/api/client/auth/complete', handleClientAuthComplete);
-app.post('/api/clients/complete-invite', handleClientAuthComplete);
-
-// CLIENT LOGIN
-const handleClientLogin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
     const user = await prisma.user.findUnique({ where: { email } });
-
-    if (!user || !user.passwordHash)
-      return fail(res, 401, 'Invalid credentials');
+    if (!user || !user.passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid)
-      return fail(res, 401, 'Invalid credentials');
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
     const token = generateClientToken(user.id, user.role);
-
-    ok(res, {
-      token,
-      user: buildClientUser(user),
-      message: 'Logged in',
-    });
+    ok(res, { token, user: buildClientUser(user) });
   } catch (err) {
     console.error('client login error', err);
-    fail(res, 500, 'Unable to login');
+    res.status(500).json({ error: 'Unable to login' });
   }
-};
-app.post('/api/client/login', handleClientLogin);
-app.post('/api/clients/login', handleClientLogin); // compat
+});
 
-// CLIENT CURRENT USER
-const handleClientMe = async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.clientId },
-    include: { client: true },
-  });
-  if (!user) return fail(res, 404, 'Not found');
-  ok(res, {
-    user: buildClientUser(user),
-    client: user.client || null,
-  });
-};
-app.get('/api/client/me', requireClient, handleClientMe);
-app.get('/api/clients/me', requireClient, handleClientMe);
+// CLIENT REQUEST PIN
+app.post('/api/clients/request-pin', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email required' });
 
-const handleClientProjects = async (req, res) => {
-  const assignments = await prisma.projectAssignment.findMany({
-    where: { userId: req.clientId },
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.status(404).json({ error: 'Client not found' });
+    if (user.role !== 'CLIENT') return res.status(403).json({ error: 'Not a client account' });
+
+    const pin = `${Math.floor(100000 + Math.random() * 900000)}`;
+    const tempPinHash = await bcrypt.hash(pin, 12);
+    const tempPinExpiresAt = new Date(Date.now() + PIN_EXP_MINUTES * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { tempPinHash, tempPinExpiresAt },
+    });
+
+    await sendInviteEmail({ to: email, pin, name: user.name || email });
+
+    ok(res, { message: 'PIN sent' });
+  } catch (err) {
+    console.error('request pin error', err);
+    res.status(500).json({ error: 'Unable to send PIN' });
+  }
+});
+
+// CLIENT VERIFY PIN
+app.post('/api/clients/verify-pin', handleClientAuthStart);
+
+// CLIENT COMPLETE INVITE (PASSWORD SET)
+app.post('/api/clients/complete', handleClientAuthComplete);
+
+// CLIENT: GET PROJECTS
+app.get('/api/client/projects', requireClient, async (req, res) => {
+  const projects = await prisma.project.findMany({
+    where: { assignments: { some: { userId: req.clientId } } },
     include: {
-      project: {
-        include: {
-          activities: { orderBy: { occurredAt: 'desc' } },
-          documents: { orderBy: { createdAt: 'desc' } },
-        },
-      },
+      assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      activities: { orderBy: { occurredAt: 'desc' } },
+      documents: { orderBy: { createdAt: 'desc' } },
     },
-    orderBy: { createdAt: 'desc' },
   });
 
-  const projects = assignments
-    .filter((a) => a.project)
-    .map((a) => ({
-      ...a.project,
-      role: a.role || null,
-    }));
+  ok(res, { projects });
+});
 
-  ok(res, { projects, project: projects[0] || null });
-};
+// CLIENT: PROJECT DETAILS
+app.get('/api/client/projects/:id', requireClient, async (req, res) => {
+  const { id } = req.params;
+  const project = await prisma.project.findFirst({
+    where: {
+      id,
+      assignments: { some: { userId: req.clientId } },
+    },
+    include: {
+      assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      activities: { orderBy: { occurredAt: 'desc' } },
+      documents: { orderBy: { createdAt: 'desc' } },
+    },
+  });
 
-// CLIENT PROJECT DATA
-app.get('/api/client/projects', requireClient, handleClientProjects);
-app.get('/api/clients/project', requireClient, handleClientProjects);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  ok(res, { project });
+});
 
-const handleClientFiles = async (req, res) => {
+// CLIENT: UPLOAD FILE
+app.post('/api/client/files/upload', requireClient, async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Storage not configured' });
+  const { projectId, name: fileName, fileBase64 } = req.body;
+  if (!fileName || !fileBase64) return res.status(400).json({ error: 'fileName and fileBase64 required' });
+
+  try {
+    const fileBuffer = Buffer.from(fileBase64, 'base64');
+    const path = `${req.clientId}/${Date.now()}-${fileName}`;
+
+    const { error } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(path, fileBuffer, {
+        contentType: 'application/octet-stream',
+        upsert: true,
+      });
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const { data: publicData } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+    const fileUrl = publicData.publicUrl;
+
+    const created = await prisma.clientFile.create({
+      data: {
+        userId: req.clientId,
+        projectId: projectId || null,
+        name: fileName,
+        fileUrl,
+        fileType: fileName.split('.').pop() || '',
+      },
+    });
+
+    res.json({ file: created });
+  } catch (err) {
+    res.status(500).json({ error: 'Unable to upload file' });
+  }
+});
+
+// CLIENT: LIST FILES
+app.get('/api/client/files', requireClient, async (req, res) => {
   const files = await prisma.clientFile.findMany({
     where: { userId: req.clientId },
     orderBy: { createdAt: 'desc' },
-    include: {
-      project: { select: { id: true, name: true } },
-    },
   });
   ok(res, { files });
-};
-// CLIENT FILES
-app.get('/api/client/files', requireClient, handleClientFiles);
-app.get('/api/clients/me/files', requireClient, handleClientFiles);
-
-// CLIENT CONTRACTS: IP capture
-app.get('/api/client/contracts/ip', requireClient, (req, res) => {
-  ok(res, { ip: getClientIp(req) });
-});
-app.get('/api/clients/contracts/ip', requireClient, (req, res) => ok(res, { ip: getClientIp(req) }));
-
-const handleClientContracts = async (req, res) => {
-  try {
-    const assignments = await prisma.contractAssignment.findMany({
-      where: { userId: req.clientId },
-      include: {
-        contract: true,
-        signature: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const contracts = assignments.map((item) => ({
-      id: item.id,
-      contractId: item.contractId,
-      title: item.contract?.title || 'Contract',
-      version: item.contract?.version || '1.0',
-      status: item.status?.toLowerCase() === 'signed' || item.signature ? 'Signed' : 'Unsigned',
-      signedAt: item.signature?.signedAt,
-      signedIp: item.signature?.signedIp,
-      signatureUrl: item.signature?.signatureUrl,
-      pdfUrl: item.signature?.pdfUrl,
-      docusealEmbedUrl: item.contract?.docusealEmbedUrl || null,
-    }));
-
-    ok(res, { contracts });
-  } catch (err) {
-    console.error('contracts list error', err);
-    fail(res, 500, 'Unable to load contracts');
-  }
-};
-
-// CLIENT CONTRACTS: LIST
-app.get('/api/client/contracts', requireClient, handleClientContracts);
-app.get('/api/clients/contracts', requireClient, handleClientContracts);
-
-// CLIENT CONTRACTS: DETAIL
-const handleClientContractDetail = async (req, res) => {
-  try {
-    const { contractId } = req.params;
-    const assignment = await prisma.contractAssignment.findUnique({
-      where: { contractId_userId: { contractId, userId: req.clientId } },
-      include: { contract: true, signature: true, user: true },
-    });
-
-    if (!assignment || !assignment.contract) {
-      return fail(res, 404, 'Contract not found');
-    }
-
-    const signed = await signSupabasePath(assignment.contract.templatePath);
-
-    ok(res, {
-      contract: {
-        id: assignment.contractId,
-        assignmentId: assignment.id,
-        title: assignment.contract.title,
-        version: assignment.contract.version,
-        body: assignment.contract.body,
-        status: assignment.status,
-        signature: assignment.signature || null,
-        docusealEmbedUrl: assignment.contract.docusealEmbedUrl || null,
-        templatePdfUrl: signed || assignment.contract.templatePdfUrl || null,
-        templatePdfUrlSigned: signed || null,
-        templatePdfUrlPublic: assignment.contract.templatePdfUrl || null,
-        signaturePlacements: assignment.contract.signaturePlacements || null,
-      },
-    });
-  } catch (err) {
-    console.error('contract detail error', err);
-    fail(res, 500, 'Unable to load contract');
-  }
-};
-app.get('/api/client/contracts/:contractId', requireClient, handleClientContractDetail);
-app.get('/api/clients/contracts/:contractId', requireClient, handleClientContractDetail);
-
-// CLIENT CONTRACTS: UPLOAD SIGNATURE
-app.post('/api/clients/contracts/:contractId/upload-signature', requireClient, async (req, res) => {
-  try {
-    const { contractId } = req.params;
-    const { signatureDataUrl } = req.body;
-    if (!signatureDataUrl) return res.status(400).json({ error: 'Signature is required' });
-
-    const assignment = await prisma.contractAssignment.findUnique({
-      where: { contractId_userId: { contractId, userId: req.clientId } },
-    });
-    if (!assignment) return res.status(404).json({ error: 'Contract not found' });
-
-    const { signatureUrl } = await uploadSignatureImage({
-      userId: req.clientId,
-      contractId,
-      signatureDataUrl,
-    });
-
-    res.json({ signatureUrl });
-  } catch (err) {
-    console.error('signature upload error', err);
-    res.status(500).json({ error: 'Unable to upload signature' });
-  }
 });
 
-// CLIENT CONTRACTS: UPLOAD PDF
-app.post('/api/clients/contracts/:contractId/upload-pdf', requireClient, async (req, res) => {
+// CLIENT: CREATE TICKET
+app.post('/api/client/tickets', requireClient, async (req, res) => {
   try {
-    const { contractId } = req.params;
-    const { pdfBase64, signatureUuid } = req.body;
-    if (!pdfBase64) return res.status(400).json({ error: 'PDF payload is required' });
+    const { title, description, priority, category } = req.body;
+    if (!title || !description) return res.status(400).json({ error: 'title and description required' });
 
-    const assignment = await prisma.contractAssignment.findUnique({
-      where: { contractId_userId: { contractId, userId: req.clientId } },
-    });
-    if (!assignment) return res.status(404).json({ error: 'Contract not found' });
-
-    const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
-    const pdfBuffer = Buffer.from(cleanBase64, 'base64');
-
-    const { pdfUrl } = await uploadPdfDocument({
-      userId: req.clientId,
-      contractId,
-      pdfBytes: pdfBuffer,
-      signatureUuid: signatureUuid || randomUUID(),
-    });
-
-    res.json({ pdfUrl });
-  } catch (err) {
-    console.error('pdf upload error', err);
-    res.status(500).json({ error: 'Unable to upload PDF' });
-  }
-});
-
-// CLIENT CONTRACTS: SIGN
-app.post('/api/clients/contracts/:contractId/sign', requireClient, async (req, res) => {
-  try {
-    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
-    const { contractId } = req.params;
-    const { typedName, signatureDataUrl, email, contractVersion } = req.body;
-
-    if (!typedName || !signatureDataUrl) {
-      return res.status(400).json({ error: 'Name and signature are required' });
-    }
-
-    const assignment = await prisma.contractAssignment.findUnique({
-      where: { contractId_userId: { contractId, userId: req.clientId } },
-      include: { contract: true, signature: true },
-    });
-    if (!assignment || !assignment.contract) {
-      return res.status(404).json({ error: 'Contract not found' });
-    }
-
-    const now = new Date();
-    const version = contractVersion || assignment.contract.version;
-    const signedIp = getClientIp(req);
-
-    const { signatureUrl } = await uploadSignatureImage({
-      userId: req.clientId,
-      contractId,
-      signatureDataUrl,
-    });
-
-    const signatureUuid = randomUUID();
-    let pdfBytes;
-    if (assignment.contract.templatePdfUrl) {
-      const resp = await fetch(assignment.contract.templatePdfUrl);
-      if (!resp.ok) throw new Error('Unable to load contract template');
-      const templateArrayBuffer = await resp.arrayBuffer();
-      pdfBytes = await generateContractPdfFromTemplate({
-        templatePdfBytes: templateArrayBuffer,
-        typedName,
-        email: email || '',
-        signedAt: now,
-        signedIp,
-        signatureDataUrl,
-        signatureUuid,
-        contractVersion: version,
-        placements: assignment.contract.signaturePlacements,
-      });
-    } else {
-      pdfBytes = await generateContractPdf({
-        contractTitle: assignment.contract.title,
-        contractVersion: version,
-        contractText: assignment.contract.body,
-        typedName,
-        email: email || '',
-        signedAt: now,
-        signedIp,
-        signatureDataUrl,
-        signatureUuid,
-      });
-    }
-
-    const { pdfUrl } = await uploadPdfDocument({
-      userId: req.clientId,
-      contractId,
-      pdfBytes,
-      signatureUuid,
-    });
-
-    const signatureRecord = await prisma.contractSignature.create({
-      data: {
-        contractId,
-        userId: req.clientId,
-        typedName,
-        email: email || '',
-        signedAt: now,
-        signedIp,
-        signatureUrl,
-        pdfUrl,
-        contractVersion: version,
-        signatureUuid,
-        status: 'signed',
-      },
-    });
-
-    await prisma.contractAssignment.update({
-      where: { id: assignment.id },
-      data: {
-        status: 'signed',
-        signatureId: signatureRecord.id,
-      },
-    });
-
-    res.json({
-      signature: signatureRecord,
-      status: 'signed',
-      pdfUrl,
-      signatureUrl,
-      signedIp,
-    });
-  } catch (err) {
-    console.error('sign contract error', err);
-    res.status(500).json({ error: 'Unable to sign contract' });
-  }
-});
-
-// CLIENT CONTRACTS: mark DocuSeal completion (fires from client embed)
-app.post('/api/clients/contracts/:contractId/docuseal-complete', requireClient, async (req, res) => {
-  try {
-    const { contractId } = req.params;
-    const assignment = await prisma.contractAssignment.findUnique({
-      where: { contractId_userId: { contractId, userId: req.clientId } },
-      include: { contract: true, signature: true, user: true },
-    });
-    if (!assignment) return res.status(404).json({ error: 'Contract not found' });
-
-    let signatureId = assignment.signatureId;
-
-    if (!signatureId) {
-      const created = await prisma.contractSignature.create({
-        data: {
-          contractId,
-          userId: req.clientId,
-          typedName: assignment.user?.name || assignment.user?.email || 'DocuSeal Signer',
-          email: assignment.user?.email || '',
-          signatureUuid: randomUUID(),
-          pdfUrl: assignment.contract?.docusealEmbedUrl || assignment.contract?.templatePdfUrl || null,
-          signedIp: getClientIp(req),
-          contractVersion: assignment.contract?.version || '1.0',
-          status: 'signed',
-        },
-      });
-      signatureId = created.id;
-    }
-
-    await prisma.contractAssignment.update({
-      where: { contractId_userId: { contractId, userId: req.clientId } },
-      data: { status: 'signed', signatureId },
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('docuseal completion error', err);
-    res.status(500).json({ error: 'Unable to mark as completed' });
-  }
-});
-
-// CLIENT TEAM: list
-const handleClientTeamList = async (req, res) => {
-  try {
-    const members = await prisma.teamMember.findMany({
-      where: { userId: req.clientId },
-      orderBy: { createdAt: 'desc' },
-    });
-    ok(res, { members });
-  } catch (err) {
-    console.error('team list error', err);
-    fail(res, 500, 'Unable to load team');
-  }
-};
-app.get('/api/client/team', requireClient, handleClientTeamList);
-app.get('/api/clients/team', requireClient, handleClientTeamList);
-
-// CLIENT TEAM: create
-const handleClientTeamCreate = async (req, res) => {
-  try {
-    const { name, email, role, phone, notes, headshotUrl } = req.body || {};
-    if (!name || !email || !role || !phone) {
-      return fail(res, 400, 'Name, email, role, and phone are required.');
-    }
-    let uploadedUrl = headshotUrl || null;
-    if (!uploadedUrl && req.body?.headshotBase64) {
-      const uploaded = await uploadHeadshotImage({ userId: req.clientId, imageBase64: req.body.headshotBase64 });
-      uploadedUrl = uploaded.headshotUrl;
-    }
-    const member = await prisma.teamMember.create({
-      data: {
-        userId: req.clientId,
-        name,
-        email,
-        role,
-        phone,
-        notes: notes || null,
-        headshotUrl: uploadedUrl || null,
-      },
-    });
-
-    // Notify admin about new team member request
-    if (mailer && ADMIN_NOTIFY_EMAIL) {
-      sendEmail({
-        to: ADMIN_NOTIFY_EMAIL,
-        subject: `New team member to add for client ${req.clientId}`,
-        html: `
-          <div style="font-family: Inter, Arial, sans-serif; font-size:14px; color:#0f172a;">
-            <p><strong>Client ID:</strong> ${req.clientId}</p>
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Role:</strong> ${role}</p>
-            <p><strong>Phone:</strong> ${phone}</p>
-            ${notes ? `<p><strong>Notes:</strong> ${notes}</p>` : ""}
-            ${uploadedUrl ? `<p><strong>Headshot:</strong> <a href="${uploadedUrl}">${uploadedUrl}</a></p>` : ""}
-          </div>
-        `,
-      }).catch(() => {});
-    }
-
-    ok(res, { member });
-  } catch (err) {
-    console.error('team create error', err);
-    fail(res, 500, 'Unable to add team member');
-  }
-};
-app.post('/api/client/team', requireClient, handleClientTeamCreate);
-app.post('/api/clients/team', requireClient, handleClientTeamCreate);
-
-// CLIENT TEAM: update
-const handleClientTeamUpdate = async (req, res) => {
-  try {
-    const { memberId } = req.params;
-    const { name, email, role, phone, notes, headshotUrl } = req.body || {};
-    const member = await prisma.teamMember.findUnique({ where: { id: memberId } });
-    if (!member || member.userId !== req.clientId) {
-      return fail(res, 404, 'Team member not found');
-    }
-    let uploadedUrl = headshotUrl === undefined ? member.headshotUrl : headshotUrl;
-    if (!headshotUrl && req.body?.headshotBase64) {
-      const uploaded = await uploadHeadshotImage({ userId: req.clientId, imageBase64: req.body.headshotBase64 });
-      uploadedUrl = uploaded.headshotUrl;
-    }
-    const updated = await prisma.teamMember.update({
-      where: { id: memberId },
-      data: {
-        name: name ?? member.name,
-        email: email ?? member.email,
-        role: role ?? member.role,
-        phone: phone ?? member.phone,
-        notes: notes === undefined ? member.notes : notes,
-        headshotUrl: uploadedUrl,
-      },
-    });
-    ok(res, { member: updated });
-  } catch (err) {
-    console.error('team update error', err);
-    fail(res, 500, 'Unable to update member');
-  }
-};
-app.put('/api/client/team/:memberId', requireClient, handleClientTeamUpdate);
-app.put('/api/clients/team/:memberId', requireClient, handleClientTeamUpdate);
-
-// CLIENT TEAM: delete
-const handleClientTeamDelete = async (req, res) => {
-  try {
-    const { memberId } = req.params;
-    const member = await prisma.teamMember.findUnique({ where: { id: memberId } });
-    if (!member || member.userId !== req.clientId) {
-      return fail(res, 404, 'Team member not found');
-    }
-    await prisma.teamMember.delete({ where: { id: memberId } });
-    ok(res, { ok: true });
-  } catch (err) {
-    console.error('team delete error', err);
-    fail(res, 500, 'Unable to remove member');
-  }
-};
-app.delete('/api/client/team/:memberId', requireClient, handleClientTeamDelete);
-app.delete('/api/clients/team/:memberId', requireClient, handleClientTeamDelete);
-
-// CLIENT TICKETS: list with status filter
-const handleClientTicketsList = async (req, res) => {
-  try {
-    const status = req.query.status;
-    const where = { userId: req.clientId };
-    if (status && typeof status === 'string' && TICKET_STATUSES.includes(status)) {
-      where.status = status;
-    }
-    const tickets = await prisma.ticket.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
-    ok(res, { tickets });
-  } catch (err) {
-    console.error('tickets list error', err);
-    fail(res, 500, 'Unable to load tickets');
-  }
-};
-app.get('/api/client/tickets', requireClient, handleClientTicketsList);
-app.get('/api/clients/tickets', requireClient, handleClientTicketsList);
-
-// CLIENT TICKETS: create
-const handleClientTicketCreate = async (req, res) => {
-  try {
-    const { title, description, priority, category } = req.body || {};
-    if (!title || !description) {
-      return fail(res, 400, 'Title and description are required.');
-    }
-    const normalizedStatus = 'Open';
     const ticket = await prisma.ticket.create({
       data: {
         userId: req.clientId,
@@ -1136,103 +778,241 @@ const handleClientTicketCreate = async (req, res) => {
         description,
         priority: priority || 'Medium',
         category: category || 'General',
-        status: normalizedStatus,
       },
     });
-    ok(res, { ticket, message: 'Ticket submitted' });
-  } catch (err) {
-    console.error('ticket create error', err);
-    fail(res, 500, 'Unable to submit ticket');
-  }
-};
-app.post('/api/client/tickets', requireClient, handleClientTicketCreate);
-app.post('/api/clients/tickets', requireClient, handleClientTicketCreate);
 
-// CLIENT TICKETS: detail
-const handleClientTicketDetail = async (req, res) => {
-  try {
-    const { ticketId } = req.params;
-    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
-    if (!ticket || ticket.userId !== req.clientId) {
-      return fail(res, 404, 'Ticket not found');
-    }
     ok(res, { ticket });
   } catch (err) {
-    console.error('ticket detail error', err);
-    fail(res, 500, 'Unable to load ticket');
+    res.status(500).json({ error: 'Unable to create ticket' });
   }
-};
-app.get('/api/client/tickets/:ticketId', requireClient, handleClientTicketDetail);
-app.get('/api/clients/tickets/:ticketId', requireClient, handleClientTicketDetail);
+});
 
-// CLIENT TICKETS: update status
-const handleClientTicketStatus = async (req, res) => {
+// CLIENT: LIST TICKETS
+app.get('/api/client/tickets', requireClient, async (req, res) => {
+  const tickets = await prisma.ticket.findMany({
+    where: { userId: req.clientId },
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { tickets });
+});
+
+// CLIENT: GET CONTRACTS
+app.get('/api/client/contracts', requireClient, async (req, res) => {
+  const assignments = await prisma.contractAssignment.findMany({
+    where: { userId: req.clientId },
+    include: {
+      contract: true,
+      signature: true,
+    },
+  });
+  ok(res, { assignments });
+});
+
+// CLIENT: SIGN CONTRACT
+app.post('/api/client/contracts/:assignmentId/sign', requireClient, async (req, res) => {
   try {
-    const { ticketId } = req.params;
-    const { status } = req.body || {};
-    if (!status || !TICKET_STATUSES.includes(status)) {
-      return fail(res, 400, 'Invalid status');
+    const { assignmentId } = req.params;
+    const { typedName, signatureDataUrl, pdfBase64, contractVersion } = req.body;
+
+    const assignment = await prisma.contractAssignment.findFirst({
+      where: { id: assignmentId, userId: req.clientId },
+      include: { contract: true, signature: true },
+    });
+
+    if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+    if (!typedName) return res.status(400).json({ error: 'typedName required' });
+
+    const signatureUuid = randomUUID();
+
+    let signatureUrl = assignment.signature?.signatureUrl;
+    let pdfUrl = assignment.signature?.pdfUrl;
+
+    if (signatureDataUrl) {
+      const { signatureUrl: uploaded } = await uploadSignatureImage({
+        userId: req.clientId,
+        contractId: assignment.contractId,
+        signatureDataUrl,
+      });
+      signatureUrl = uploaded;
     }
-    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
-    if (!ticket || ticket.userId !== req.clientId) {
-      return fail(res, 404, 'Ticket not found');
+
+    if (pdfBase64) {
+      const pdfBytes = Buffer.from(pdfBase64.split(',')[1] || pdfBase64, 'base64');
+      const { pdfUrl: uploadedPdf } = await uploadPdfDocument({
+        userId: req.clientId,
+        contractId: assignment.contractId,
+        pdfBytes,
+        signatureUuid,
+      });
+      pdfUrl = uploadedPdf;
+    } else if (assignment.contract?.body) {
+      const pdfBuffer = await generateContractPdf({
+        body: assignment.contract.body,
+        title: assignment.contract.title,
+        signedName: typedName,
+        contractVersion: contractVersion || assignment.contract.version,
+        contractId: assignment.contractId,
+        userName: assignment.user?.name,
+      });
+      const { pdfUrl: uploadedPdf } = await uploadPdfDocument({
+        userId: req.clientId,
+        contractId: assignment.contractId,
+        pdfBytes: pdfBuffer,
+        signatureUuid,
+      });
+      pdfUrl = uploadedPdf;
     }
-    const updated = await prisma.ticket.update({
-      where: { id: ticketId },
+
+    const signature = await prisma.contractSignature.create({
       data: {
-        status,
-        closedAt: status === 'Closed' ? new Date() : null,
+        contractId: assignment.contractId,
+        userId: req.clientId,
+        typedName,
+        email: assignment.user?.email || '',
+        signedAt: new Date(),
+        signedIp: getClientIp(req),
+        signatureUrl,
+        pdfUrl,
+        contractVersion: contractVersion || assignment.contract?.version || '1.0',
+        signatureUuid,
       },
     });
-    ok(res, { ticket: updated });
-  } catch (err) {
-    console.error('ticket status update error', err);
-    fail(res, 500, 'Unable to update ticket status');
-  }
-};
-app.post('/api/client/tickets/:ticketId/status', requireClient, handleClientTicketStatus);
-app.post('/api/clients/tickets/:ticketId/status', requireClient, handleClientTicketStatus);
 
-// ADMIN: tickets list (with search/status)
-app.get('/api/admin/tickets', requireAdmin, async (req, res) => {
+    await prisma.contractAssignment.update({
+      where: { id: assignmentId },
+      data: {
+        status: 'signed',
+        signatureId: signature.id,
+      },
+    });
+
+    ok(res, { signature });
+  } catch (err) {
+    console.error('sign contract error', err);
+    res.status(500).json({ error: 'Unable to sign contract' });
+  }
+});
+
+// CLIENT: INVITE TEAM MEMBER
+app.post('/api/client/team/invite', requireClient, async (req, res) => {
   try {
-    const { status, search } = req.query;
-    const filters = {};
-    if (status && typeof status === 'string' && TICKET_STATUSES.includes(status)) {
-      filters.status = status;
+    const { name, email, role } = req.body;
+    if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+
+    const existing = await prisma.teamMember.findFirst({
+      where: { userId: req.clientId, email },
+    });
+    if (existing) return res.status(400).json({ error: 'Team member already invited' });
+
+    const member = await prisma.teamMember.create({
+      data: {
+        userId: req.clientId,
+        name,
+        email,
+        role: role || 'Member',
+        status: 'Pending',
+      },
+    });
+
+    ok(res, { member });
+  } catch (err) {
+    res.status(500).json({ error: 'Unable to invite team member' });
+  }
+});
+
+// CLIENT: LIST TEAM
+app.get('/api/client/team', requireClient, async (req, res) => {
+  const members = await prisma.teamMember.findMany({
+    where: { userId: req.clientId },
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { members });
+});
+
+// CLIENT: VIEW FILES FOR PROJECT
+app.get('/api/client/projects/:projectId/files', requireClient, async (req, res) => {
+  const { projectId } = req.params;
+  const files = await prisma.clientFile.findMany({
+    where: { projectId, userId: req.clientId },
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { files });
+});
+
+// CLIENT: VIEW TICKETS
+app.get('/api/client/projects/:projectId/tickets', requireClient, async (req, res) => {
+  const { projectId } = req.params;
+  const tickets = await prisma.ticket.findMany({
+    where: { projectId, userId: req.clientId },
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { tickets });
+});
+
+// CLIENT: DOCUSEAL SIGNATURE CALLBACK (WEBHOOK)
+app.post('/api/client/docuseal/callback', async (req, res) => {
+  // This could be implemented if needed; placeholder to avoid 404.
+  res.json({ ok: true });
+});
+
+// ADMIN: CREATE TEMP PIN FOR CLIENT
+app.post('/api/admin/clients/:id/pin', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const pin = `${Math.floor(100000 + Math.random() * 900000)}`;
+    const tempPinHash = await bcrypt.hash(pin, 12);
+    const tempPinExpiresAt = new Date(Date.now() + PIN_EXP_MINUTES * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id },
+      data: { tempPinHash, tempPinExpiresAt },
+    });
+
+    if (user.email) {
+      await sendInviteEmail({ to: user.email, pin, name: user.name || user.email });
     }
-    if (search && typeof search === 'string') {
-      filters.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
-    }
+
+    ok(res, { pinSent: !!user.email, pin });
+  } catch (err) {
+    console.error('admin create pin error', err);
+    res.status(500).json({ error: 'Unable to create PIN' });
+  }
+});
+
+// ADMIN: LIST TICKETS
+app.get('/api/admin/tickets', requireAdmin, async (_req, res) => {
+  try {
     const tickets = await prisma.ticket.findMany({
-      where: filters,
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { id: true, email: true, name: true } },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
-    res.json({ tickets });
+    ok(res, { tickets });
   } catch (err) {
-    console.error('admin tickets list error', err);
     res.status(500).json({ error: 'Unable to load tickets' });
   }
 });
 
-// ADMIN: team members for a client
-app.get('/api/admin/clients/:clientId/team', requireAdmin, async (req, res) => {
+// ADMIN: ADD ADMIN MESSAGE TO TICKET
+app.post('/api/admin/tickets/:ticketId/message', requireAdmin, async (req, res) => {
   try {
-    const { clientId } = req.params;
-    const members = await prisma.teamMember.findMany({
-      where: { userId: clientId },
-      orderBy: { createdAt: 'desc' },
+    const { ticketId } = req.params;
+    const { adminMessage } = req.body || {};
+    if (!adminMessage) return res.status(400).json({ error: 'adminMessage required' });
+
+    const ticket = await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { adminMessage },
     });
-    res.json({ members });
+
+    res.json({ ticket });
   } catch (err) {
-    console.error('admin team list error', err);
-    res.status(500).json({ error: 'Unable to load team members' });
+    console.error('admin ticket message error', err);
+    res.status(500).json({ error: 'Unable to update ticket' });
   }
 });
 
@@ -1851,14 +1631,18 @@ const startServer = async () => {
     await prisma.$connect();
     await ensureSiteSettings();
 
-    startUptimeMonitor({
-      prisma,
-      mailer,
-      loadSettings: ensureSiteSettings,
-      smtpFrom: SMTP_FROM,
-      timeoutMs: UPTIME_TIMEOUT_MS,
-      pollFrequencyMs: UPTIME_POLL_MS,
-    });
+    try {
+      startUptimeMonitor({
+        prisma,
+        mailer,
+        loadSettings: ensureSiteSettings,
+        smtpFrom: SMTP_FROM,
+        timeoutMs: UPTIME_TIMEOUT_MS,
+        pollFrequencyMs: UPTIME_POLL_MS,
+      });
+    } catch (err) {
+      console.error('Failed to start uptime monitor', err);
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`API running on port ${PORT}`);

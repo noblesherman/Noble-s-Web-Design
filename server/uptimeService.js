@@ -1,49 +1,44 @@
+// server/uptimeService.js
 const CHECK_WINDOW_MS = 1000;
 
 /**
- * Safely send an email without interrupting the monitor loop.
+ * Safely send an email without breaking the monitor loop.
  */
-const safeSendEmail = async (mailer, to, subject, html, from) => {
+function safeSendEmail(mailer, to, subject, html, from) {
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
-  if (!mailer || !recipients.length) return;
+  if (!mailer || !recipients.length) return Promise.resolve();
 
-  try {
-    await mailer.sendMail({ from, to: recipients, subject, html });
-  } catch (err) {
+  return mailer.sendMail({ from, to: recipients, subject, html }).catch((err) => {
     console.error('Email failed:', err);
-  }
-};
+  });
+}
 
 /**
- * Safely send an SMS without interrupting the monitor loop.
+ * Safely send an SMS without breaking the monitor loop.
  */
-const safeSendSMS = async (sendSms, to, message) => {
+function safeSendSMS(sendSms, to, message) {
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
-  if (!sendSms || !recipients.length) return;
+  if (!sendSms || !recipients.length) return Promise.resolve();
 
-  try {
-    for (const recipient of recipients) {
-      await sendSms({ to: recipient, message });
-    }
-  } catch (err) {
-    console.error('SMS failed:', err);
-  }
-};
+  return Promise.all(
+    recipients.map((recipient) =>
+      Promise.resolve(sendSms({ to: recipient, message })).catch((err) => {
+        console.error('SMS failed:', err);
+      })
+    )
+  ).then(() => undefined);
+}
 
 /**
- * Execute a timed HTTP GET check against a URL.
+ * Execute a timed HTTP GET check.
  */
-const runHttpCheck = async (url, timeoutMs) => {
+async function runHttpCheck(url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const started = Date.now();
 
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller.signal,
-    });
+    const res = await fetch(url, { method: 'GET', cache: 'no-store', signal: controller.signal });
     clearTimeout(timer);
     return {
       passed: res.ok,
@@ -59,27 +54,29 @@ const runHttpCheck = async (url, timeoutMs) => {
       error: err?.message || 'request failed',
     };
   }
-};
+}
 
 /**
- * Compute uptime score (0-100) rounded to one decimal.
+ * Calculate uptime score (0-100) rounded to one decimal place.
  */
-const computeScore = (logs) => {
+function computeScore(logs) {
   const entries = Array.isArray(logs) ? logs : [];
   if (!entries.length) return 100;
   const passed = entries.filter((log) => Boolean(log?.passed)).length;
   return Math.round((passed / entries.length) * 1000) / 10;
-};
+}
 
 /**
  * Backwards-compatible uptime percentage helper.
  */
-const calculateUptimePercentage = (logs) => computeScore(logs);
+export function calculateUptimePercentage(logs) {
+  return computeScore(logs);
+}
 
 /**
- * Start the uptime monitoring loop.
+ * Start the uptime monitoring loop without blocking server startup.
  */
-const startUptimeMonitor = (options) => {
+export function startUptimeMonitor(options = {}) {
   const {
     prisma,
     mailer,
@@ -88,10 +85,11 @@ const startUptimeMonitor = (options) => {
     timeoutMs = 10000,
     pollFrequencyMs = 30000,
     sendSms,
-  } = options || {};
+  } = options;
 
   if (!prisma || typeof loadSettings !== 'function') {
-    throw new Error('startUptimeMonitor requires prisma and loadSettings');
+    console.warn('Uptime monitor not started: missing prisma or loadSettings');
+    return;
   }
 
   const isCheckDue = (target) => {
@@ -99,43 +97,6 @@ const startUptimeMonitor = (options) => {
     const intervalMs = intervalMinutes * 60 * 1000;
     const lastCheckedMs = target.lastChecked ? target.lastChecked.getTime() : 0;
     return Date.now() - lastCheckedMs >= intervalMs - CHECK_WINDOW_MS;
-  };
-
-  const sendDownAlert = async (target, result, emailRecipients, smsRecipients, failureCount) => {
-    const subject = `Uptime Alert: ${target.url} is DOWN`;
-    const html = `
-      <div style="font-family:Arial,sans-serif;padding:12px 0;">
-        <h2 style="margin:0 0 12px 0;">${target.url} is DOWN</h2>
-        <p style="margin:0 0 8px 0;">Failed ${failureCount} consecutive checks.</p>
-        <p style="margin:0 0 8px 0;">Status: ${result.statusCode ?? 'No response'}</p>
-        <p style="margin:0;">Checked at ${new Date().toLocaleString()}</p>
-      </div>
-    `;
-
-    await safeSendEmail(mailer, emailRecipients, subject, html, smtpFrom);
-    await safeSendSMS(
-      sendSms,
-      smsRecipients,
-      `ALERT: ${target.url} is DOWN. Status: ${result.statusCode ?? 'none'}. Failures: ${failureCount}.`
-    );
-  };
-
-  const sendRecoveryAlert = async (target, result, emailRecipients, smsRecipients) => {
-    const subject = `Uptime Restored: ${target.url} is back online`;
-    const html = `
-      <div style="font-family:Arial,sans-serif;padding:12px 0;">
-        <h2 style="margin:0 0 12px 0;">${target.url} is UP</h2>
-        <p style="margin:0 0 8px 0;">Status: ${result.statusCode ?? 'Unknown'}</p>
-        <p style="margin:0;">Checked at ${new Date().toLocaleString()}</p>
-      </div>
-    `;
-
-    await safeSendEmail(mailer, emailRecipients, subject, html, smtpFrom);
-    await safeSendSMS(
-      sendSms,
-      smsRecipients,
-      `RESTORED: ${target.url} is BACK ONLINE. Status: ${result.statusCode ?? 'unknown'}.`
-    );
   };
 
   const processTarget = async (target, settings) => {
@@ -157,10 +118,37 @@ const startUptimeMonitor = (options) => {
 
     if (shouldAlertDown) {
       alertActive = true;
-      await sendDownAlert(target, result, emailRecipients, smsRecipients, nextFailures);
+      const subject = `Uptime Alert: ${target.url} is DOWN`;
+      const html = `
+        <div style="font-family:Arial,sans-serif;padding:12px 0;">
+          <h2 style="margin:0 0 12px 0;">${target.url} is DOWN</h2>
+          <p style="margin:0 0 8px 0;">Failed ${nextFailures} consecutive checks.</p>
+          <p style="margin:0 0 8px 0;">Status: ${result.statusCode ?? 'No response'}</p>
+          <p style="margin:0;">Checked at ${new Date().toLocaleString()}</p>
+        </div>
+      `;
+      await safeSendEmail(mailer, emailRecipients, subject, html, smtpFrom);
+      await safeSendSMS(
+        sendSms,
+        smsRecipients,
+        `ALERT: ${target.url} is DOWN. Status: ${result.statusCode ?? 'none'}. Failures: ${nextFailures}.`
+      );
     } else if (shouldAlertUp) {
       alertActive = false;
-      await sendRecoveryAlert(target, result, emailRecipients, smsRecipients);
+      const subject = `Uptime Restored: ${target.url} is back online`;
+      const html = `
+        <div style="font-family:Arial,sans-serif;padding:12px 0;">
+          <h2 style="margin:0 0 12px 0;">${target.url} is UP</h2>
+          <p style="margin:0 0 8px 0;">Status: ${result.statusCode ?? 'Unknown'}</p>
+          <p style="margin:0;">Checked at ${new Date().toLocaleString()}</p>
+        </div>
+      `;
+      await safeSendEmail(mailer, emailRecipients, subject, html, smtpFrom);
+      await safeSendSMS(
+        sendSms,
+        smsRecipients,
+        `RESTORED: ${target.url} is BACK ONLINE. Status: ${result.statusCode ?? 'unknown'}.`
+      );
     }
 
     await prisma.uptimeLog.create({
@@ -193,27 +181,23 @@ const startUptimeMonitor = (options) => {
     });
   };
 
-  const pollOnce = async () => {
-    const targets = await prisma.uptimeTarget.findMany();
-    if (!targets.length) return;
-
-    const settings = await loadSettings();
-
-    await Promise.all(
-      targets.map((target) =>
-        processTarget(target, settings).catch((err) => {
-          console.error(`Uptime check failed for ${target.url}`, err);
-        })
-      )
-    );
-  };
-
   let running = false;
-  const loop = async () => {
+
+  const pollOnce = async () => {
     if (running) return;
     running = true;
     try {
-      await pollOnce();
+      const targets = await prisma.uptimeTarget.findMany();
+      if (!targets.length) return;
+
+      const settings = await loadSettings();
+      await Promise.all(
+        targets.map((target) =>
+          processTarget(target, settings).catch((err) => {
+            console.error(`Uptime check failed for ${target.url}`, err);
+          })
+        )
+      );
     } catch (err) {
       console.error('Uptime poll failed', err);
     } finally {
@@ -221,11 +205,11 @@ const startUptimeMonitor = (options) => {
     }
   };
 
-  loop();
-  setInterval(loop, Number(pollFrequencyMs) || 30000);
-};
-
-export {
-  startUptimeMonitor,
-  calculateUptimePercentage
-};
+  // Run immediately without blocking startup, then schedule.
+  queueMicrotask(() => {
+    pollOnce();
+    setInterval(() => {
+      pollOnce();
+    }, Number(pollFrequencyMs) || 30000);
+  });
+}

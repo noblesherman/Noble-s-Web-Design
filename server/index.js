@@ -234,16 +234,20 @@ const resolveSessionExpiration = (session) => {
 };
 
 class SafePrismaSessionStore extends PrismaSessionStore {
-  async safeCreateSessionRecord(sid, session) {
+  // Override session store methods so missing session rows are recreated instead of throwing noisy errors.
+  serializeSession(session) {
+    try {
+      return this.serializer.stringify(session);
+    } catch (err) {
+      console.error('Session serialize failed', err);
+      return JSON.stringify(session || {});
+    }
+  }
+
+  safeCreateSessionRecord = async (sid, session) => {
     try {
       const expiresAt = resolveSessionExpiration(session);
-      let dataString;
-      try {
-        dataString = this.serializer.stringify(session);
-      } catch (err) {
-        console.error('Session serialize failed', err);
-        dataString = JSON.stringify(session || {});
-      }
+      const dataString = this.serializeSession(session);
 
       const createData = { sid, expiresAt, data: dataString };
       if (this.dbRecordIdIsSessionId) {
@@ -253,44 +257,75 @@ class SafePrismaSessionStore extends PrismaSessionStore {
         if (generated) createData.id = generated;
       }
 
-      await this.prisma[this.sessionModelName].create({ data: createData });
+      return await this.prisma[this.sessionModelName].create({ data: createData });
     } catch (err) {
       console.error('Session recreate failed', err);
+      return null;
     }
-  }
+  };
 
-  async set(sid, session, callback) {
-    const expiresAt = resolveSessionExpiration(session);
-    const data = JSON.stringify(session);
+  set = async (sid, session, callback) => {
+    if (this.options?.enableConcurrentSetInvocationsForSameSessionID !== true && this.isSetting?.get(sid)) {
+      if (callback) callback();
+      return;
+    }
+
+    if (this.isSetting) this.isSetting.set(sid, true);
 
     try {
-      const result = await prisma.session.update({
+      const expiresAt = resolveSessionExpiration(session);
+      const data = this.serializeSession(session);
+
+      const result = await this.prisma[this.sessionModelName].update({
         where: { sid },
-        data: { data, expiresAt }
+        data: { data, expiresAt },
       });
       if (callback) callback(null, result);
       return result;
     } catch (err) {
-      const result = await prisma.session.create({
-        data: { sid, data, expiresAt }
+      if (isRecordNotFoundError(err)) {
+        const created = await this.safeCreateSessionRecord(sid, session);
+        if (callback) callback(null, created || undefined);
+        return created;
+      }
+
+      console.error('Session set failed', err);
+      if (callback) callback(err);
+    } finally {
+      if (this.isSetting) this.isSetting.set(sid, false);
+    }
+  };
+
+  touch = async (sid, session, callback) => {
+    if (this.options?.enableConcurrentTouchInvocationsForSameSessionID !== true && this.isTouching?.get(sid)) {
+      if (callback) callback();
+      return;
+    }
+
+    if (this.isTouching) this.isTouching.set(sid, true);
+
+    try {
+      const expiresAt = resolveSessionExpiration(session);
+      const data = this.serializeSession(session);
+
+      const result = await this.prisma[this.sessionModelName].update({
+        where: { sid },
+        data: { expiresAt, data },
       });
       if (callback) callback(null, result);
       return result;
-    }
-  }
-
-  async touch(sid, session, callback) {
-    try {
-      return await super.touch(sid, session, callback);
     } catch (err) {
       if (isRecordNotFoundError(err)) {
         await this.safeCreateSessionRecord(sid, session);
         if (callback) callback();
         return;
       }
-      throw err;
+      console.error('Session touch failed', err);
+      if (callback) callback(err);
+    } finally {
+      if (this.isTouching) this.isTouching.delete(sid);
     }
-  }
+  };
 }
 
 const sendEmail = async ({ to, subject, html }) => {

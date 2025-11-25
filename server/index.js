@@ -276,10 +276,22 @@ class SafePrismaSessionStore extends PrismaSessionStore {
       const expiresAt = resolveSessionExpiration(session);
       const data = this.serializeSession(session);
 
-      const result = await this.prisma[this.sessionModelName].update({
-        where: { sid },
-        data: { data, expiresAt },
-      });
+      let result;
+      try {
+        result = await this.prisma[this.sessionModelName].update({
+          where: { sid },
+          data: { data, expiresAt },
+        });
+      } catch (error) {
+        // Swallow missing session row errors so we don't crash the server.
+        if (error.code === 'P2025') {
+          console.warn(`Session ${sid} not found in DB during set(). Skipping update.`);
+          if (callback) callback(null);
+          return;
+        }
+        console.error('Critical Session Error:', error);
+        throw error;
+      }
       if (callback) callback(null, result);
       return result;
     } catch (err) {

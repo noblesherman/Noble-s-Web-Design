@@ -514,7 +514,7 @@ app.get(
     session: true,
   }),
   (_req, res) => {
-    res.redirect(process.env.ADMIN_REDIRECT);
+    res.redirect(ADMIN_REDIRECT);
   }
 );
 

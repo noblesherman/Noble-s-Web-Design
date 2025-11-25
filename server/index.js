@@ -284,13 +284,14 @@ class SafePrismaSessionStore extends PrismaSessionStore {
       return result;
     } catch (err) {
       if (isRecordNotFoundError(err)) {
+        console.warn('Session update skipped; record missing', { sid });
         const created = await this.safeCreateSessionRecord(sid, session);
         if (callback) callback(null, created || undefined);
         return created;
       }
 
-      console.error('Session set failed', err);
       if (callback) callback(err);
+      throw err;
     } finally {
       if (this.isSetting) this.isSetting.set(sid, false);
     }
@@ -316,12 +317,13 @@ class SafePrismaSessionStore extends PrismaSessionStore {
       return result;
     } catch (err) {
       if (isRecordNotFoundError(err)) {
+        console.warn('Session touch skipped; record missing', { sid });
         await this.safeCreateSessionRecord(sid, session);
         if (callback) callback();
         return;
       }
-      console.error('Session touch failed', err);
       if (callback) callback(err);
+      throw err;
     } finally {
       if (this.isTouching) this.isTouching.delete(sid);
     }

@@ -260,15 +260,22 @@ class SafePrismaSessionStore extends PrismaSessionStore {
   }
 
   async set(sid, session, callback) {
+    const expiresAt = resolveSessionExpiration(session);
+    const data = JSON.stringify(session);
+
     try {
-      return await super.set(sid, session, callback);
+      const result = await prisma.session.update({
+        where: { sid },
+        data: { data, expiresAt }
+      });
+      if (callback) callback(null, result);
+      return result;
     } catch (err) {
-      if (isRecordNotFoundError(err)) {
-        await this.safeCreateSessionRecord(sid, session);
-        if (callback) callback();
-        return;
-      }
-      throw err;
+      const result = await prisma.session.create({
+        data: { sid, data, expiresAt }
+      });
+      if (callback) callback(null, result);
+      return result;
     }
   }
 

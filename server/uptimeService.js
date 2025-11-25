@@ -1,9 +1,9 @@
 const CHECK_WINDOW_MS = 1000;
 
 /**
- * Safely send an email without breaking the uptime loop.
+ * Safely send an email without interrupting the monitor loop.
  */
-const safeSendEmail = async ({ mailer, from, to, subject, html }) => {
+const safeSendEmail = async (mailer, to, subject, html, from) => {
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
   if (!mailer || !recipients.length) return;
 
@@ -15,7 +15,7 @@ const safeSendEmail = async ({ mailer, from, to, subject, html }) => {
 };
 
 /**
- * Safely send an SMS without breaking the uptime loop.
+ * Safely send an SMS without interrupting the monitor loop.
  */
 const safeSendSMS = async (sendSms, to, message) => {
   const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
@@ -31,7 +31,7 @@ const safeSendSMS = async (sendSms, to, message) => {
 };
 
 /**
- * Execute an HTTP GET check against a target URL with a timeout.
+ * Execute a timed HTTP GET check against a URL.
  */
 const runHttpCheck = async (url, timeoutMs) => {
   const controller = new AbortController();
@@ -44,9 +44,12 @@ const runHttpCheck = async (url, timeoutMs) => {
       cache: 'no-store',
       signal: controller.signal,
     });
-    const responseTime = Date.now() - started;
     clearTimeout(timer);
-    return { passed: res.ok, statusCode: res.status, responseTime };
+    return {
+      passed: res.ok,
+      statusCode: res.status,
+      responseTime: Date.now() - started,
+    };
   } catch (err) {
     clearTimeout(timer);
     return {
@@ -59,7 +62,7 @@ const runHttpCheck = async (url, timeoutMs) => {
 };
 
 /**
- * Calculate uptime score (0-100) from an array of log entries.
+ * Compute uptime score (0-100) rounded to one decimal.
  */
 const computeScore = (logs) => {
   const entries = Array.isArray(logs) ? logs : [];
@@ -69,7 +72,7 @@ const computeScore = (logs) => {
 };
 
 /**
- * Compatibility wrapper matching computeScore output.
+ * Backwards-compatible uptime percentage helper.
  */
 const calculateUptimePercentage = (logs) => computeScore(logs);
 
@@ -85,7 +88,7 @@ const startUptimeMonitor = (options) => {
     timeoutMs = 10000,
     pollFrequencyMs = 30000,
     sendSms,
-  } = options;
+  } = options || {};
 
   if (!prisma || typeof loadSettings !== 'function') {
     throw new Error('startUptimeMonitor requires prisma and loadSettings');
@@ -109,14 +112,7 @@ const startUptimeMonitor = (options) => {
       </div>
     `;
 
-    await safeSendEmail({
-      mailer,
-      from: smtpFrom,
-      to: emailRecipients,
-      subject,
-      html,
-    });
-
+    await safeSendEmail(mailer, emailRecipients, subject, html, smtpFrom);
     await safeSendSMS(
       sendSms,
       smsRecipients,
@@ -134,14 +130,7 @@ const startUptimeMonitor = (options) => {
       </div>
     `;
 
-    await safeSendEmail({
-      mailer,
-      from: smtpFrom,
-      to: emailRecipients,
-      subject,
-      html,
-    });
-
+    await safeSendEmail(mailer, emailRecipients, subject, html, smtpFrom);
     await safeSendSMS(
       sendSms,
       smsRecipients,
@@ -154,24 +143,21 @@ const startUptimeMonitor = (options) => {
 
     const result = await runHttpCheck(target.url, timeoutMs);
     const passed = Boolean(result.passed);
-    const consecutiveFailures = passed ? 0 : (target.consecutiveFailures || 0) + 1;
-    const alertThreshold = Number(settings?.alertThreshold ?? 2) || 2;
+    const nextFailures = passed ? 0 : (target.consecutiveFailures || 0) + 1;
 
-    const emailRecipients = [
-      settings?.primaryAlertEmail,
-      settings?.secondaryAlertEmail,
-    ].filter(Boolean);
+    const emailRecipients = [settings?.primaryAlertEmail, settings?.secondaryAlertEmail].filter(Boolean);
     const smsRecipients = Array.isArray(settings?.smsAlertNumber)
       ? settings.smsAlertNumber.filter(Boolean)
       : [settings?.smsAlertNumber].filter(Boolean);
 
+    const alertThreshold = Number(settings?.alertThreshold ?? 2) || 2;
     let alertActive = Boolean(target.alertActive);
-    const shouldAlertDown = !passed && consecutiveFailures >= alertThreshold && !alertActive;
+    const shouldAlertDown = !passed && nextFailures >= alertThreshold && !alertActive;
     const shouldAlertUp = passed && alertActive;
 
     if (shouldAlertDown) {
       alertActive = true;
-      await sendDownAlert(target, result, emailRecipients, smsRecipients, consecutiveFailures);
+      await sendDownAlert(target, result, emailRecipients, smsRecipients, nextFailures);
     } else if (shouldAlertUp) {
       alertActive = false;
       await sendRecoveryAlert(target, result, emailRecipients, smsRecipients);
@@ -180,7 +166,7 @@ const startUptimeMonitor = (options) => {
     await prisma.uptimeLog.create({
       data: {
         targetId: target.id,
-        statusCode: result.statusCode ?? 0,
+        statusCode: result.statusCode ?? null,
         responseTime: result.responseTime ?? null,
         passed,
         smsAlertNumber: smsRecipients[0] || null,
@@ -197,10 +183,10 @@ const startUptimeMonitor = (options) => {
     await prisma.uptimeTarget.update({
       where: { id: target.id },
       data: {
-        lastStatus: result.statusCode ?? 0,
+        lastStatus: result.statusCode ?? null,
         lastChecked: new Date(),
         lastResponseTimeMs: result.responseTime ?? null,
-        consecutiveFailures,
+        consecutiveFailures: nextFailures,
         alertActive,
         uptimeScore,
       },
@@ -222,16 +208,16 @@ const startUptimeMonitor = (options) => {
     );
   };
 
-  let polling = false;
+  let running = false;
   const loop = async () => {
-    if (polling) return;
-    polling = true;
+    if (running) return;
+    running = true;
     try {
       await pollOnce();
     } catch (err) {
       console.error('Uptime poll failed', err);
     } finally {
-      polling = false;
+      running = false;
     }
   };
 

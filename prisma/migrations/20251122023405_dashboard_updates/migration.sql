@@ -52,9 +52,6 @@ ALTER TABLE "UptimeLog" DROP CONSTRAINT "UptimeLog_targetId_fkey";
 ALTER TABLE "UptimeTarget" DROP CONSTRAINT "UptimeTarget_ownerUserId_fkey";
 
 -- DropIndex
-DROP INDEX "TeamMember_userId_idx";
-
--- DropIndex
 DROP INDEX "Ticket_createdAt_idx";
 
 -- DropIndex

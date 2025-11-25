@@ -195,6 +195,7 @@ model UptimeTarget {
   ownerUserId        String?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
+  uptimeScore        Float     @default(100)
 
   owner User? @relation("OwnerTargets", fields: [ownerUserId], references: [id])
   logs  UptimeLog[]
@@ -207,6 +208,7 @@ model UptimeLog {
   statusCode   Int?
   responseTime Int?
   passed       Boolean
+  smsAlertNumber        String?
 
   target UptimeTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
 }

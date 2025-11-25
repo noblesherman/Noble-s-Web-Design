@@ -1,4 +1,4 @@
-/** 
+/**
  * @typedef {Object} UptimeServiceOptions
  * @property {import('@prisma/client').PrismaClient} prisma
  * @property {ReturnType<typeof import('nodemailer').createTransport> | null} mailer
@@ -6,162 +6,225 @@
  * @property {string} smtpFrom
  * @property {number} timeoutMs
  * @property {number} pollFrequencyMs
+ * @property {(opts: { to: string, message: string }) => Promise<void>} sendSms
  */
 
 const CHECK_WINDOW_MS = 1000;
 
 /**
- * Lightweight helper to send an email if mailer/recipients exist.
- * @param {{ mailer: any, to: string[], subject: string, html: string, from: string }} params
+ * Safe email wrapper.
  */
 const safeSendEmail = async ({ mailer, to, subject, html, from }) => {
-  if (!mailer || !to.length) return;
+  if (!mailer || !to?.length) return;
   try {
     await mailer.sendMail({ from, to, subject, html });
   } catch (err) {
-    console.error('Failed to send uptime email', err);
+    console.error("Email failed:", err);
   }
 };
 
 /**
- * Runs a single HTTP check with a timeout.
- * @param {string} url
- * @param {number} timeoutMs
+ * Safe SMS wrapper.
+ */
+const safeSendSMS = async (sendSms, to, message) => {
+  if (!sendSms || !to) return;
+  try {
+    await sendSms({ to, message });
+  } catch (err) {
+    console.error("SMS failed:", err);
+  }
+};
+
+/**
+ * Run single HTTP check.
  */
 const runHttpCheck = async (url, timeoutMs) => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const started = Date.now();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const start = Date.now();
 
   try {
-    const res = await fetch(url, { method: 'GET', signal: controller.signal, cache: 'no-store' });
-    const responseTime = Date.now() - started;
-    clearTimeout(timeoutId);
+    const res = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    clearTimeout(timeout);
+
     return {
       passed: res.ok,
       statusCode: res.status,
-      responseTime,
+      responseTime: Date.now() - start,
     };
   } catch (err) {
-    clearTimeout(timeoutId);
+    clearTimeout(timeout);
     return {
       passed: false,
       statusCode: null,
-      responseTime: Date.now() - started,
-      error: err?.message || 'request failed',
+      responseTime: Date.now() - start,
+      error: err?.message,
     };
   }
 };
 
 /**
- * Calculates uptime percentage based on the provided logs.
- * @param {Array<{ passed: boolean }>} logs
+ * Compute uptime score.
  */
-export const calculateUptimePercentage = (logs) => {
+const computeScore = (logs) => {
   if (!logs.length) return 100;
-  const passed = logs.filter(l => l.passed).length;
+  const passed = logs.filter((l) => l.passed).length;
   return Math.round((passed / logs.length) * 1000) / 10;
 };
 
 /**
- * Starts the polling loop for uptime checks.
- * @param {UptimeServiceOptions} options
+ * Start uptime monitor loop with SMS + score.
  */
 export const startUptimeMonitor = (options) => {
-  const { prisma, mailer, loadSettings, smtpFrom, timeoutMs, pollFrequencyMs } = options;
+  const {
+    prisma,
+    mailer,
+    loadSettings,
+    smtpFrom,
+    timeoutMs,
+    pollFrequencyMs,
+    sendSms,
+  } = options;
 
   const poll = async () => {
     try {
-      const targets = await prisma.uptimeTarget.findMany();
+      const targets = await prisma.uptimeTarget.findMany({
+        include: { logs: { select: { passed: true } } },
+      });
       if (!targets.length) return;
 
       const settings = await loadSettings();
       const alertThreshold = settings.alertThreshold || 2;
-      const recipients = [settings.primaryAlertEmail, settings.secondaryAlertEmail].filter(Boolean);
+      const emailRecipients = [settings.primaryAlertEmail, settings.secondaryAlertEmail].filter(
+        Boolean
+      );
+
+      const smsRecipients = settings.smsAlertNumber || null;
 
       await Promise.all(
         targets.map(async (target) => {
-          const due = !target.lastChecked
-            || (Date.now() - target.lastChecked.getTime()) >= (target.checkInterval * 60 * 1000 - CHECK_WINDOW_MS);
+          const now = Date.now();
+          const last = target.lastChecked?.getTime() || 0;
+          const intervalMs = target.checkInterval * 60 * 1000;
+          const due = now - last >= intervalMs - CHECK_WINDOW_MS;
           if (!due) return;
 
           const result = await runHttpCheck(target.url, timeoutMs);
+
+          // Store log
           await prisma.uptimeLog.create({
             data: {
               targetId: target.id,
+              passed: result.passed,
               statusCode: result.statusCode,
               responseTime: result.responseTime,
-              passed: result.passed,
             },
           });
 
-          const nextFailures = result.passed ? 0 : (target.consecutiveFailures || 0) + 1;
-          let shouldAlert = !result.passed && nextFailures >= alertThreshold && !target.alertActive;
-          let alertActiveFlag = target.alertActive;
+          const nextFailures = result.passed
+            ? 0
+            : (target.consecutiveFailures || 0) + 1;
 
-          if (shouldAlert && recipients.length) {
-            const subject = `Uptime alert: ${target.url} is DOWN`;
+          let alertActive = target.alertActive;
+
+          // ⛔ DOWN ALERT
+          if (!result.passed && nextFailures >= alertThreshold && !alertActive) {
+            alertActive = true;
+
+            const subject = `Uptime Alert: ${target.url} is DOWN`;
             const html = `
-              <div style="font-family:Arial,sans-serif;color:#0f172a">
-                <h2 style="margin:0 0 12px 0;">${target.url} is not responding</h2>
-                <p style="margin:0 0 8px 0;">The site failed ${nextFailures} consecutive checks.</p>
-                <ul style="padding-left:18px; color:#334155;">
-                  <li>Last status: ${result.statusCode ?? 'no response'}</li>
-                  <li>Checked at: ${new Date().toLocaleString()}</li>
-                  <li>Response time: ${result.responseTime}ms</li>
-                  <li>Interval: ${target.checkInterval} minute(s)</li>
-                </ul>
+              <div style="font-family:Arial;">
+                <h2>${target.url} is DOWN</h2>
+                <p>Failed ${nextFailures} checks.</p>
+                <p>Status: ${result.statusCode ?? "No response"}</p>
               </div>
             `;
-            await safeSendEmail({ mailer, to: recipients, subject, html, from: smtpFrom });
-            alertActiveFlag = true;
+
+            // EMAIL
+            await safeSendEmail({
+              mailer,
+              to: emailRecipients,
+              subject,
+              html,
+              from: smtpFrom,
+            });
+
+            // SMS
+            await safeSendSMS(
+              sendSms,
+              smsRecipients,
+              `ALERT: ${target.url} is DOWN. Status: ${result.statusCode ?? "none"}.`
+            );
           }
 
-          if (result.passed && target.alertActive && recipients.length) {
-            const subject = `Uptime restored: ${target.url} is back online`;
+          // ✅ RESTORED ALERT
+          if (result.passed && alertActive) {
+            alertActive = false;
+
+            const subject = `Uptime Restored: ${target.url} is back online`;
             const html = `
-              <div style="font-family:Arial,sans-serif;color:#0f172a">
-                <h2 style="margin:0 0 12px 0;">${target.url} is responding again</h2>
-                <p style="margin:0 0 8px 0;">The latest check succeeded.</p>
-                <ul style="padding-left:18px; color:#334155;">
-                  <li>Status: ${result.statusCode}</li>
-                  <li>Checked at: ${new Date().toLocaleString()}</li>
-                  <li>Response time: ${result.responseTime}ms</li>
-                </ul>
+              <div style="font-family:Arial;">
+                <h2>${target.url} is UP</h2>
+                <p>Last response: ${result.statusCode}</p>
               </div>
             `;
-            await safeSendEmail({ mailer, to: recipients, subject, html, from: smtpFrom });
-            alertActiveFlag = false;
+
+            await safeSendEmail({
+              mailer,
+              to: emailRecipients,
+              subject,
+              html,
+              from: smtpFrom,
+            });
+
+            await safeSendSMS(
+              sendSms,
+              smsRecipients,
+              `RESTORED: ${target.url} is BACK ONLINE. Status: ${result.statusCode}.`
+            );
           }
 
+          // SCORE CALCULATION
+          const logs = await prisma.uptimeLog.findMany({
+            where: { targetId: target.id },
+            select: { passed: true },
+          });
+
+          const score = computeScore(logs);
+
+          // Update target
           await prisma.uptimeTarget.update({
             where: { id: target.id },
             data: {
-              lastStatus: result.statusCode ?? (result.passed ? 200 : 0),
+              lastStatus: result.statusCode ?? 0,
               lastChecked: new Date(),
               lastResponseTimeMs: result.responseTime,
-              consecutiveFailures: result.passed ? 0 : nextFailures,
-              alertActive: alertActiveFlag,
+              consecutiveFailures: nextFailures,
+              alertActive,
+              uptimeScore: score,
             },
           });
         })
       );
     } catch (err) {
-      console.error('uptime poll failed', err);
+      console.error("Uptime poll failed:", err);
     }
   };
 
-  let intervalId;
-  const startLoop = async () => {
+  const loop = async () => {
     try {
       await poll();
-      intervalId = setInterval(poll, pollFrequencyMs);
+      setInterval(poll, pollFrequencyMs);
     } catch (err) {
-      console.error('Failed to start uptime monitor loop', err);
-      setTimeout(startLoop, Math.min(pollFrequencyMs, 30000));
+      console.error("Failed to start uptime loop", err);
+      setTimeout(loop, Math.min(pollFrequencyMs, 30000));
     }
   };
 
-  startLoop();
-  return () => intervalId && clearInterval(intervalId);
+  loop();
 };

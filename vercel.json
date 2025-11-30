@@ -15,5 +15,17 @@
         "buildCommand": "npm run build"
       }
     }
+  ],
+  "functions": {
+    "api/**": {
+      "includeFiles": "server/**",
+      "runtime": "nodejs20.x"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
+    }
   ]
 }

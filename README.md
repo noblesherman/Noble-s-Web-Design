@@ -57,7 +57,7 @@ A full-stack dashboard and client portal for a boutique web studio. Admins manag
 - `npx prisma studio` – inspect data.
 
 ## Auth Flows
-- Admin: `/auth/github` → session cookie → `/api/admin/*` with credentials.
+- Admin: `/api/auth/github` → session cookie → `/api/admin/*` with credentials.
 - Client first-time: `/api/client/auth/start` (email+PIN) → `/api/client/auth/complete` (set password) → JWT.
 - Client returning: `/api/client/login` → JWT stored in `localStorage`.
 
@@ -81,4 +81,3 @@ A full-stack dashboard and client portal for a boutique web studio. Admins manag
 - Uptime requires SMTP if you want alert emails; otherwise logs still record status.
 
 Enjoy!
-

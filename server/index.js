@@ -1,6 +1,7 @@
 // server/index.js
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import dotenv from 'dotenv';
 import express from 'express';
 import session from 'express-session';
@@ -18,16 +19,22 @@ import { randomUUID } from 'crypto';
 import { generateContractPdf, generateContractPdfFromTemplate } from './contractPdf.js';
 import { startUptimeMonitor, calculateUptimePercentage } from './uptimeService.js';
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
 
 const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const isServerless = process.env.VERCEL === 'true' || process.env.VERCEL === '1' || process.env.SERVERLESS === 'true';
 const PORT = Number(process.env.PORT || 4000);
 const DATABASE_URL = process.env.DATABASE_URL;
-const FRONTEND_URL = process.env.FRONTEND_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:5173');
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.NEXTAUTH_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:5173');
 const API_URL = process.env.VITE_API_URL || process.env.API_URL || 'https://api.noblesweb.design';
-const ADMIN_REDIRECT = process.env.ADMIN_REDIRECT || `${FRONTEND_URL.replace(/\/$/, '')}/admin`;
+const API_BASE_URL = (process.env.NEXTAUTH_URL || API_URL || FRONTEND_URL || 'https://api.noblesweb.design').replace(/\/$/, '');
+process.env.ADMIN_REDIRECT = process.env.ADMIN_REDIRECT || `${FRONTEND_URL.replace(/\/$/, '')}/admin`;
+const ADMIN_REDIRECT = process.env.ADMIN_REDIRECT;
+process.env.GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'https://api.noblesweb.design/auth/github/callback';
+const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PIN_EXP_MINUTES = Number(process.env.PIN_EXP_MINUTES || 30);
@@ -39,8 +46,7 @@ const UPTIME_POLL_MS = Number(process.env.UPTIME_POLL_MS || 30000);
 const VALID_CHECK_INTERVALS = [1, 5, 15, 60];
 const TICKET_STATUSES = ['Open', 'In Progress', 'Closed'];
 const INVITE_TOKEN_TTL_MINUTES = Number(process.env.INVITE_TOKEN_TTL_MINUTES || 30);
-const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'https://api.noblesweb.design/auth/github/callback';
-const REQUIRED_ENV = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'];
+const REQUIRED_ENV = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_CALLBACK_URL'];
 const normalizeOrigin = (value) => {
   if (!value) return null;
   try {
@@ -52,11 +58,15 @@ const normalizeOrigin = (value) => {
 const allowedOrigins = Array.from(new Set([
   FRONTEND_URL,
   API_URL,
+  API_BASE_URL,
   ADMIN_REDIRECT,
+  process.env.NEXTAUTH_URL,
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
   'https://noblesweb.design',
   'https://api.noblesweb.design',
   ...(isProd ? [] : ['http://localhost:3000']),
 ].map(normalizeOrigin).filter(Boolean)));
+const COOKIE_DOMAIN = isProd ? '.noblesweb.design' : undefined;
 
 const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missingEnv.length) {
@@ -566,19 +576,27 @@ app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
 // SESSION + PASSPORT
+const sessionCookie = {
+  httpOnly: true,
+  sameSite: 'none',
+  secure: true,
+  domain: COOKIE_DOMAIN,
+  maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+};
+
+if (!isProd) {
+  sessionCookie.secure = false;
+  sessionCookie.sameSite = 'lax';
+  sessionCookie.domain = undefined;
+}
+
 app.use(
   session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     proxy: isProd,
-    cookie: {
-      secure: isProd,
-      sameSite: isProd ? 'none' : 'lax',
-      httpOnly: true,
-      domain: isProd ? '.noblesweb.design' : undefined,
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-    },
+    cookie: sessionCookie,
     store: new SafePrismaSessionStore(prisma, {
       checkPeriod: 2 * 60 * 1000,
       dbRecordIdIsSessionId: false,
@@ -631,27 +649,19 @@ passport.use(
           },
         });
 
+        console.log('GitHub OAuth passport verify success', { userId: user.id, githubId: profile.id });
         return done(null, user);
       } catch (err) {
+        console.error('GitHub OAuth passport verify failed', err);
         return done(err);
       }
     }
   )
 );
 
-// GITHUB AUTH ROUTES
-app.get('/auth/github', passport.authenticate('github', { scope: ['user:email'] }));
-
-app.get(
-  '/auth/github/callback',
-  passport.authenticate('github', {
-    failureRedirect: `${FRONTEND_URL}/admin/login`,
-    session: true,
-  }),
-  (_req, res) => {
-    res.redirect(ADMIN_REDIRECT);
-  }
-);
+// AUTH ROUTES (GITHUB OAUTH)
+const authRouter = require('./routes/auth.js');
+app.use('/', authRouter);
 
 // ADMIN AUTH GUARD
 const requireAdmin = (req, res, next) => {
@@ -670,7 +680,7 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
 });
 
 // ADMIN LOGOUT
-app.post('/logout', (req, res) => {
+app.post(['/logout', '/api/logout'], (req, res) => {
   req.logout?.(() => {});
   req.session?.destroy(() => {});
   res.clearCookie('connect.sid');
@@ -1657,7 +1667,7 @@ app.post('/api/contact', async (req, res) => {
 });
 
 // HEALTH CHECK
-app.get('/health', async (_req, res) => {
+app.get(['/health', '/api/health'], async (_req, res) => {
   const now = Date.now();
   let dbStatus = 'ok';
   let dbLatencyMs = null;
@@ -1693,24 +1703,43 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
+let appReady;
+const ensureAppReady = async () => {
+  if (!appReady) {
+    appReady = (async () => {
+      await prisma.$connect();
+      await ensureSiteSettings();
+
+      if (!isServerless) {
+        try {
+          startUptimeMonitor({
+            prisma,
+            mailer,
+            loadSettings: ensureSiteSettings,
+            smtpFrom: SMTP_FROM,
+            timeoutMs: UPTIME_TIMEOUT_MS,
+            pollFrequencyMs: UPTIME_POLL_MS,
+          });
+        } catch (err) {
+          console.error('Failed to start uptime monitor', err);
+        }
+      }
+
+      app.locals.initialized = true;
+      return true;
+    })().catch((err) => {
+      appReady = undefined;
+      throw err;
+    });
+  }
+
+  return appReady;
+};
+
 // START SERVER AFTER PRISMA IS READY
 const startServer = async () => {
   try {
-    await prisma.$connect();
-    await ensureSiteSettings();
-
-    try {
-      startUptimeMonitor({
-        prisma,
-        mailer,
-        loadSettings: ensureSiteSettings,
-        smtpFrom: SMTP_FROM,
-        timeoutMs: UPTIME_TIMEOUT_MS,
-        pollFrequencyMs: UPTIME_POLL_MS,
-      });
-    } catch (err) {
-      console.error('Failed to start uptime monitor', err);
-    }
+    await ensureAppReady();
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`API running on port ${PORT}`);
@@ -1721,4 +1750,9 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (!isServerless) {
+  startServer();
+}
+
+export { app, ensureAppReady };
+export default app;

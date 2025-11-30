@@ -832,7 +832,7 @@ export const Admin: React.FC = () => {
 
             <button
               onClick={() => {
-                window.location.href = `${API_BASE}/auth/github`;
+                window.location.href = `${API_BASE}/api/auth/github`;
               }}
               className="w-full flex items-center justify-center gap-3 bg-white text-background hover:bg-slate-100 py-3.5 px-4 rounded-xl font-semibold transition-all shadow-lg shadow-primary/20"
             >
@@ -883,7 +883,7 @@ export const Admin: React.FC = () => {
             </nav>
             <button
               onClick={() => {
-                fetch(`${API_BASE}/logout`, { method: "POST", credentials: "include" })
+                fetch(`${API_BASE}/api/logout`, { method: "POST", credentials: "include" })
                   .finally(() => setIsAuth(false));
               }}
               className="flex items-center gap-2 text-muted hover:text-red-400 text-sm justify-center px-4 py-3 rounded-xl border border-white/10 hover:border-red-400/40 transition-colors"

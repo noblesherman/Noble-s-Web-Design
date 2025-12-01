@@ -635,14 +635,24 @@ const ensureAdminUser = async () => {
 // ADMIN 2FA SETUP
 app.get('/api/admin/2fa/setup', async (req, res) => {
   try {
-    const providedPassword = req.query.password || req.headers['x-admin-password'];
-    if (!ADMIN_PASSWORD || providedPassword !== ADMIN_PASSWORD) {
+    const providedPassword =
+      req.query.password ||
+      req.headers['x-admin-password'] ||
+      (typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+        ? req.headers.authorization.slice(7)
+        : null);
+    const hasSessionAdmin = req.session?.user?.role === 'ADMIN';
+
+    if (!hasSessionAdmin && (!ADMIN_PASSWORD || providedPassword !== ADMIN_PASSWORD)) {
       return res.status(401).json({ error: 'Invalid admin password' });
     }
 
     const secret = speakeasy.generateSecret({
       name: `Noble Web Designs (${ADMIN_EMAIL || 'admin@noblesweb.design'})`,
     });
+
+    // Save pending secret in session so verify can work before env is updated.
+    req.session.pendingTotpSecret = secret.base32;
 
     console.log('Generated ADMIN_TOTP_SECRET (add to .env):', secret.base32);
     const qrCodeDataUrl = await qrcode.toDataURL(secret.otpauth_url);
@@ -651,6 +661,33 @@ app.get('/api/admin/2fa/setup', async (req, res) => {
   } catch (err) {
     console.error('2FA setup error', err);
     fail(res, 500, 'Unable to generate 2FA secret');
+  }
+});
+
+// ADMIN 2FA VERIFY
+app.post('/api/admin/2fa/verify', async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: 'Code is required' });
+
+    const secret = ADMIN_TOTP_SECRET || req.session?.pendingTotpSecret;
+    if (!secret) return res.status(400).json({ error: 'No TOTP secret available. Generate one first.' });
+
+    const verified = speakeasy.totp.verify({
+      secret,
+      encoding: 'base32',
+      token: code,
+      window: 1,
+    });
+
+    if (!verified) return res.status(401).json({ error: 'Invalid 2FA code' });
+
+    // Clear pending secret after successful check to avoid reuse.
+    if (req.session) req.session.pendingTotpSecret = null;
+    ok(res, { message: '2FA verified' });
+  } catch (err) {
+    console.error('2FA verify error', err);
+    fail(res, 500, 'Unable to verify 2FA');
   }
 });
 

@@ -656,7 +656,7 @@ const handleClientAuthComplete = async (req, res) => {
 // BASIC MIDDLEWARE
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
+    if (!origin) return callback(null, true); // allow non-browser (curl) and same-origin
     const normalized = normalizeOrigin(origin);
     if (allowedOrigins.includes(normalized)) return callback(null, origin);
     console.warn(`Blocked CORS origin: ${origin}`);
@@ -667,6 +667,22 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   optionsSuccessStatus: 204,
 };
+app.use((req, res, next) => {
+  // manual headers to guard against proxies stripping them
+  const origin = req.headers.origin;
+  const normalized = normalizeOrigin(origin);
+  if (origin && allowedOrigins.includes(normalized)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Vary', 'Origin');
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  return next();
+});
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 

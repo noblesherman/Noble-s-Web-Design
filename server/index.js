@@ -658,21 +658,25 @@ const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     const normalized = normalizeOrigin(origin);
-    if (allowedOrigins.includes(normalized)) return callback(null, true);
+    if (allowedOrigins.includes(normalized)) return callback(null, origin);
     console.warn(`Blocked CORS origin: ${origin}`);
-    return callback(null, false);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   optionsSuccessStatus: 204,
 };
-app.use((_, res, next) => {
-  res.header('Access-Control-Allow-Credentials', 'true');
-  next();
-});
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+// Surface CORS denials with a clear response instead of a silent block
+app.use((err, req, res, next) => {
+  if (err?.message === 'Not allowed by CORS') {
+    return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
+  }
+  return next(err);
+});
 
 app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));

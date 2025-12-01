@@ -111,7 +111,7 @@ const Admin2FASetup: React.FC = () => {
                   <input
                     type="text"
                     inputMode="numeric"
-                    pattern="\\d{6}"
+                    pattern="[0-9]{6}"
                     required
                     value={code}
                     onChange={(e) => setCode(e.target.value)}

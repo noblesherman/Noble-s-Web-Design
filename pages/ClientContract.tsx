@@ -43,10 +43,10 @@ export const ClientContract: React.FC = () => {
     const loadContract = async () => {
       try {
         const [contractRes, meRes] = await Promise.all([
-          fetch(`${API_BASE}/api/client/contracts/${contractId}`, {
+          fetch(`${API_BASE}/client/contracts/${contractId}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          fetch(`${API_BASE}/api/client/me`, {
+          fetch(`${API_BASE}/client/me`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -192,11 +192,11 @@ export const ClientContract: React.FC = () => {
                       const token = localStorage.getItem("client_token");
                       if (!token) return;
                       try {
-                        await fetch(`${API_BASE}/api/client/contracts/${contractId}/docuseal-complete`, {
+                        await fetch(`${API_BASE}/client/contracts/${contractId}/docuseal-complete`, {
                           method: "POST",
                           headers: { Authorization: `Bearer ${token}` },
                         });
-                        const res = await fetch(`${API_BASE}/api/client/contracts/${contractId}`, {
+                        const res = await fetch(`${API_BASE}/client/contracts/${contractId}`, {
                           headers: { Authorization: `Bearer ${token}` },
                         });
                         const refreshed = await res.json();

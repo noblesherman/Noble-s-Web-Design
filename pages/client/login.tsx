@@ -22,7 +22,7 @@ const ClientLogin: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/clients/login`, {
+      const res = await fetch(`${API_BASE}/clients/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),

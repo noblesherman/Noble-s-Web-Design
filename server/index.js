@@ -55,16 +55,23 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const allowedOrigins = Array.from(new Set([
-  FRONTEND_URL,
-  API_URL,
-  API_BASE_URL,
-  ADMIN_REDIRECT,
-  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
-  'https://noblesweb.design',
-  'https://api.noblesweb.design',
-  ...(isProd ? [] : ['http://localhost:3000']),
-].map(normalizeOrigin).filter(Boolean)));
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      FRONTEND_URL,
+      API_URL,
+      API_BASE_URL,
+      ADMIN_REDIRECT,
+      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+      'https://noblesweb.design',
+      'https://www.noblesweb.design',
+      'https://api.noblesweb.design',
+      ...(isProd ? [] : ['http://localhost:3000']),
+    ]
+      .map(normalizeOrigin)
+      .filter(Boolean)
+  )
+);
 const COOKIE_DOMAIN = isProd ? '.noblesweb.design' : undefined;
 
 const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
@@ -659,11 +666,24 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 204,
 };
+app.use((_, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
+});
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
+
+// Allow both /api/... and unprefixed paths like /admin/login by rewriting when needed.
+const aliasPrefixes = ['/admin', '/client', '/clients', '/contact', '/logout', '/auth'];
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/')) return next();
+  const hit = aliasPrefixes.find((prefix) => req.url === prefix || req.url.startsWith(`${prefix}/`));
+  if (hit) req.url = `/api${req.url}`;
+  next();
+});
 
 // SESSION + PASSPORT
 const sessionCookie = {

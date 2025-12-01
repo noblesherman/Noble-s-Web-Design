@@ -23,7 +23,7 @@ const ClientRegister: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/clients/register`, {
+      const res = await fetch(`${API_BASE}/clients/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password }),

@@ -66,7 +66,7 @@ export const Client: React.FC = () => {
 
     const hydrate = async () => {
       try {
-        const meRes = await fetch(`${API_BASE}/api/client/me`, {
+        const meRes = await fetch(`${API_BASE}/client/me`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const meData = await meRes.json();
@@ -93,7 +93,7 @@ export const Client: React.FC = () => {
 
   const fetchProject = async (token: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/client/projects`, {
+      const res = await fetch(`${API_BASE}/client/projects`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -115,7 +115,7 @@ export const Client: React.FC = () => {
 
   const fetchFiles = async (token: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/client/files`, {
+      const res = await fetch(`${API_BASE}/client/files`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -129,7 +129,7 @@ export const Client: React.FC = () => {
     setContractsLoading(true);
     setContractsError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/client/contracts`, {
+      const res = await fetch(`${API_BASE}/client/contracts`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -152,7 +152,7 @@ export const Client: React.FC = () => {
     setTicketsLoading(true);
     setTicketsError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/client/tickets`, {
+      const res = await fetch(`${API_BASE}/client/tickets`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -173,7 +173,7 @@ export const Client: React.FC = () => {
     setTeamLoading(true);
     setTeamError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/client/team`, {
+      const res = await fetch(`${API_BASE}/client/team`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -219,7 +219,7 @@ export const Client: React.FC = () => {
     setTicketSaving(true);
     setTicketsError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/client/tickets`, {
+      const res = await fetch(`${API_BASE}/client/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(ticketForm),
@@ -246,7 +246,7 @@ export const Client: React.FC = () => {
     setTeamSaving(true);
     setTeamError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/client/team`, {
+      const res = await fetch(`${API_BASE}/client/team`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(teamForm),
@@ -268,7 +268,7 @@ export const Client: React.FC = () => {
     setInviteToken(null);
     setFirstTimeStep("pin");
     setHydrateError(null);
-    const res = await fetch(`${API_BASE}/api/client/login`, {
+    const res = await fetch(`${API_BASE}/client/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
@@ -293,7 +293,7 @@ export const Client: React.FC = () => {
   const startFirstTime = async () => {
     setError(null);
     setAuthMessage(null);
-    const res = await fetch(`${API_BASE}/api/client/auth/start`, {
+    const res = await fetch(`${API_BASE}/client/auth/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, pin }),
@@ -314,7 +314,7 @@ export const Client: React.FC = () => {
     setAuthMessage(null);
     setHydrateError(null);
     const tokenPayload = inviteToken;
-    const res = await fetch(`${API_BASE}/api/client/auth/complete`, {
+    const res = await fetch(`${API_BASE}/client/auth/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

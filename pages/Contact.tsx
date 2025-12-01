@@ -31,7 +31,7 @@ export const Contact: React.FC = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setIsSuccess(false);
-    fetch(`${API_BASE}/api/contact`, {
+    fetch(`${API_BASE}/contact`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData),

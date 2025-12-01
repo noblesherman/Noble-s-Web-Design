@@ -1,5 +1,6 @@
 // server/index.js
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import express from 'express';
@@ -19,6 +20,8 @@ import { generateContractPdf, generateContractPdfFromTemplate } from './contract
 import { startUptimeMonitor, calculateUptimePercentage } from './uptimeService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.join(__dirname, '..');
+const distDir = path.join(rootDir, 'dist');
 
 // Explicitly load .env from the server directory
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -693,6 +696,11 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Static assets for the built frontend (Vite dist)
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir, { index: false }));
+}
+
 // SESSION + PASSPORT
 const sessionCookie = {
   httpOnly: true,
@@ -849,6 +857,15 @@ app.post(['/logout', '/api/logout'], (req, res) => {
   res.clearCookie('connect.sid');
   res.json({ ok: true });
 });
+
+// SPA fallback to serve the built frontend for non-API routes
+if (fs.existsSync(distDir)) {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    const indexPath = path.join(distDir, 'index.html');
+    return res.sendFile(indexPath);
+  });
+}
 
 app.post('/api/admin/clients/issue-pin', requireAdmin, async (req, res) => {
   try {

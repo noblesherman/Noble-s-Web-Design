@@ -20,7 +20,7 @@ import { startUptimeMonitor, calculateUptimePercentage } from './uptimeService.j
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
-dotenv.config();
+
 
 const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const isServerless = process.env.VERCEL === 'true' || process.env.VERCEL === '1' || process.env.SERVERLESS === 'true';

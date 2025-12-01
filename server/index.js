@@ -23,7 +23,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Explicitly load .env from the server directory
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-
 const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const isServerless = process.env.VERCEL === 'true' || process.env.VERCEL === '1' || process.env.SERVERLESS === 'true';
 const PORT = Number(process.env.PORT || 4000);
@@ -471,6 +470,97 @@ const buildClientUser = (user) => ({
   role: user.role,
 });
 
+const ensureClientInvitePin = async ({ email, name, company }) => {
+  if (!email) throw new Error('Email is required for client invite');
+
+  const pin = `${Math.floor(100000 + Math.random() * 900000)}`;
+  const tempPinHash = await bcrypt.hash(pin, 12);
+  const tempPinExpiresAt = new Date(Date.now() + PIN_EXP_MINUTES * 60 * 1000);
+
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {
+      tempPinHash,
+      tempPinExpiresAt,
+      name: name || undefined,
+      role: 'CLIENT',
+    },
+    create: {
+      email,
+      name: name || email,
+      role: 'CLIENT',
+      tempPinHash,
+      tempPinExpiresAt,
+    },
+  });
+
+  await ensureClientRecord({ userId: user.id, name, company });
+
+  if (mailer) {
+    await sendInviteEmail({ to: email, pin, name: name || email });
+  }
+
+  return { user, pin, tempPinExpiresAt };
+};
+
+const handleAdminLogin = async (req, res) => {
+  try {
+    const { email, password, code } = req.body || {};
+    if (!email || !password || !code) return res.status(400).json({ error: 'Email, password, and code are required' });
+
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return res.status(500).json({ error: 'Admin credentials are not configured' });
+
+    if (email.toLowerCase() !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (!ADMIN_TOTP_SECRET) {
+      return res.status(500).json({ error: 'ADMIN_TOTP_SECRET is not configured' });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: ADMIN_TOTP_SECRET,
+      encoding: 'base32',
+      token: code,
+    });
+
+    if (!verified) return res.status(401).json({ error: 'Invalid 2FA code' });
+
+    const user = await ensureAdminUser();
+    req.session.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role || 'ADMIN',
+    };
+    req.user = req.session.user;
+
+    ok(res, { user: req.session.user });
+  } catch (err) {
+    console.error('admin login error', err);
+    fail(res, 500, 'Unable to login');
+  }
+};
+
+const handleClientPasswordLogin = async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const token = generateClientToken(user.id, user.role);
+    ok(res, { token, user: buildClientUser(user) });
+  } catch (err) {
+    console.error('client login error', err);
+    res.status(500).json({ error: 'Unable to login' });
+  }
+};
+
 const handleClientAuthStart = async (req, res) => {
   try {
     const { email, pin } = req.body || {};
@@ -518,26 +608,26 @@ const handleClientAuthComplete = async (req, res) => {
       }
     } else {
       if (!email || !pin) return fail(res, 400, 'Email and PIN required');
-      user = await prisma.user.findUnique({ where: { email } });
-      if (!user) return fail(res, 404, 'Client not found for that PIN');
-      if (user.tempPinExpiresAt && user.tempPinExpiresAt.getTime() < Date.now()) {
+
+      const found = await prisma.user.findUnique({ where: { email } });
+      if (!found || !found.tempPinHash) return fail(res, 404, 'Client not found for that PIN');
+      if (found.tempPinExpiresAt && found.tempPinExpiresAt.getTime() < Date.now()) {
         return fail(res, 401, 'PIN expired. Ask your admin to regenerate.');
       }
-      const validPin = user.tempPinHash ? await bcrypt.compare(pin, user.tempPinHash) : false;
+      const validPin = await bcrypt.compare(pin, found.tempPinHash);
       if (!validPin) return fail(res, 401, 'Client not found for that PIN');
+      user = found;
     }
 
-    if (!user) return fail(res, 404, 'Client not found');
-
     const passwordHash = await bcrypt.hash(password, 12);
-
     const updated = await prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
         tempPinHash: null,
         tempPinExpiresAt: null,
-        name: user.name || name || undefined,
+        name: name || user.name,
+        role: 'CLIENT',
       },
     });
 
@@ -693,44 +783,14 @@ app.post('/api/admin/2fa/verify', async (req, res) => {
   }
 });
 
-// ADMIN LOGIN (PASSWORD + TOTP)
-app.post('/api/admin/login', async (req, res) => {
-  try {
-    const { email, password, code } = req.body || {};
-    if (!email || !password || !code) return res.status(400).json({ error: 'Email, password, and code are required' });
+app.post('/api/admin/login', handleAdminLogin);
 
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return res.status(500).json({ error: 'Admin credentials are not configured' });
-
-    if (email.toLowerCase() !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    if (!ADMIN_TOTP_SECRET) {
-      return res.status(500).json({ error: 'ADMIN_TOTP_SECRET is not configured' });
-    }
-
-    const verified = speakeasy.totp.verify({
-      secret: ADMIN_TOTP_SECRET,
-      encoding: 'base32',
-      token: code,
-    });
-
-    if (!verified) return res.status(401).json({ error: 'Invalid 2FA code' });
-
-    const user = await ensureAdminUser();
-    req.session.user = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role || 'ADMIN',
-    };
-    req.user = req.session.user;
-
-    ok(res, { user: req.session.user });
-  } catch (err) {
-    console.error('admin login error', err);
-    fail(res, 500, 'Unable to login');
+app.post('/api/auth/login', async (req, res) => {
+  const { role, code } = req.body || {};
+  if ((role || '').toUpperCase() === 'ADMIN' || code) {
+    return handleAdminLogin(req, res);
   }
+  return handleClientPasswordLogin(req, res);
 });
 
 // ADMIN CURRENT USER
@@ -743,11 +803,36 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
   });
 });
 
+app.get('/api/users', requireAdmin, async (_req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+    ok(res, { users });
+  } catch (err) {
+    fail(res, 500, 'Unable to load users');
+  }
+});
+
 // ADMIN LOGOUT
 app.post(['/logout', '/api/logout'], (req, res) => {
   req.session?.destroy(() => {});
   res.clearCookie('connect.sid');
   res.json({ ok: true });
+});
+
+app.post('/api/admin/clients/issue-pin', requireAdmin, async (req, res) => {
+  try {
+    const { email, name, company } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'email required' });
+
+    const { user, pin, tempPinExpiresAt } = await ensureClientInvitePin({ email, name, company });
+    ok(res, { user: buildClientUser(user), pin, expiresAt: tempPinExpiresAt });
+  } catch (err) {
+    console.error('issue pin error', err);
+    fail(res, 500, 'Unable to issue PIN');
+  }
 });
 
 // CLIENT JWT AUTH GUARD
@@ -772,25 +857,28 @@ app.post('/api/clients/register', (_req, res) => {
   return res.status(403).json({ error: 'Registration is invite-only' });
 });
 
-// CLIENT LOGIN (EMAIL + PASSWORD)
-app.post('/api/clients/login', async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+app.get('/api/client/me', requireClient, async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.clientId } });
+  if (!user) return res.status(404).json({ error: 'User not found' });
 
-  try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
+  const client = await prisma.client.findUnique({ where: { userId: req.clientId } });
+  const teamMembers = await prisma.teamMember.findMany({
+    where: { userId: req.clientId },
+    orderBy: { createdAt: 'desc' },
+  });
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-
-    const token = generateClientToken(user.id, user.role);
-    ok(res, { token, user: buildClientUser(user) });
-  } catch (err) {
-    console.error('client login error', err);
-    res.status(500).json({ error: 'Unable to login' });
-  }
+  ok(res, {
+    user: buildClientUser(user),
+    client,
+    team: teamMembers,
+  });
 });
+
+app.post('/api/client/auth/start', handleClientAuthStart);
+app.post('/api/client/auth/complete', handleClientAuthComplete);
+
+app.post('/api/clients/login', handleClientPasswordLogin);
+app.post('/api/client/login', handleClientPasswordLogin);
 
 // CLIENT REQUEST PIN
 app.post('/api/clients/request-pin', async (req, res) => {
@@ -907,7 +995,7 @@ app.get('/api/client/files', requireClient, async (req, res) => {
 });
 
 // CLIENT: CREATE TICKET
-app.post('/api/client/tickets', requireClient, async (req, res) => {
+const createClientTicket = async (req, res) => {
   try {
     const { title, description, priority, category } = req.body;
     if (!title || !description) return res.status(400).json({ error: 'title and description required' });
@@ -926,15 +1014,57 @@ app.post('/api/client/tickets', requireClient, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Unable to create ticket' });
   }
-});
+};
+
+app.post('/api/client/tickets', requireClient, createClientTicket);
 
 // CLIENT: LIST TICKETS
 app.get('/api/client/tickets', requireClient, async (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : null;
+  const where = { userId: req.clientId };
+  if (status && TICKET_STATUSES.includes(status)) where.status = status;
+
   const tickets = await prisma.ticket.findMany({
-    where: { userId: req.clientId },
+    where,
     orderBy: { createdAt: 'desc' },
   });
   ok(res, { tickets });
+});
+
+app.get('/api/clients/tickets', requireClient, async (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : null;
+  const where = { userId: req.clientId };
+  if (status && TICKET_STATUSES.includes(status)) where.status = status;
+
+  const tickets = await prisma.ticket.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { tickets });
+});
+
+app.post('/api/clients/tickets', requireClient, createClientTicket);
+
+app.get('/api/clients/tickets/:ticketId', requireClient, async (req, res) => {
+  const { ticketId } = req.params;
+  const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, userId: req.clientId } });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  ok(res, { ticket });
+});
+
+app.post('/api/clients/tickets/:ticketId/status', requireClient, async (req, res) => {
+  const { ticketId } = req.params;
+  const { status } = req.body || {};
+  if (!status || !TICKET_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, userId: req.clientId } });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  const updated = await prisma.ticket.update({
+    where: { id: ticketId },
+    data: { status, closedAt: status === 'Closed' ? new Date() : null },
+  });
+  ok(res, { ticket: updated });
 });
 
 // CLIENT: GET CONTRACTS
@@ -947,6 +1077,32 @@ app.get('/api/client/contracts', requireClient, async (req, res) => {
     },
   });
   ok(res, { assignments });
+});
+
+app.get('/api/client/contracts/:contractId', requireClient, async (req, res) => {
+  const { contractId } = req.params;
+  const assignment = await prisma.contractAssignment.findFirst({
+    where: { contractId, userId: req.clientId },
+    include: { contract: true, signature: true },
+  });
+  if (!assignment) return res.status(404).json({ error: 'Contract not found' });
+  ok(res, { assignment });
+});
+
+app.post('/api/client/contracts/:contractId/docuseal-complete', requireClient, async (req, res) => {
+  const { contractId } = req.params;
+  const assignment = await prisma.contractAssignment.findFirst({
+    where: { contractId, userId: req.clientId },
+    include: { contract: true, signature: true },
+  });
+  if (!assignment) return res.status(404).json({ error: 'Contract not found' });
+
+  await prisma.contractAssignment.update({
+    where: { id: assignment.id },
+    data: { status: 'signed' },
+  });
+
+  ok(res, { status: 'acknowledged' });
 });
 
 // CLIENT: SIGN CONTRACT
@@ -1067,7 +1223,7 @@ app.get('/api/client/team', requireClient, async (req, res) => {
     where: { userId: req.clientId },
     orderBy: { createdAt: 'desc' },
   });
-  ok(res, { members });
+  ok(res, { members, team: members });
 });
 
 // CLIENT: VIEW FILES FOR PROJECT
@@ -1091,9 +1247,72 @@ app.get('/api/client/projects/:projectId/tickets', requireClient, async (req, re
 });
 
 // CLIENT: DOCUSEAL SIGNATURE CALLBACK (WEBHOOK)
-app.post('/api/client/docuseal/callback', async (req, res) => {
-  // This could be implemented if needed; placeholder to avoid 404.
+app.post('/api/client/docuseal/callback', async (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/api/clients/team', requireClient, async (req, res) => {
+  const members = await prisma.teamMember.findMany({
+    where: { userId: req.clientId },
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { team: members, members });
+});
+
+app.post('/api/clients/team', requireClient, async (req, res) => {
+  const { name, email, role, phone, notes } = req.body || {};
+  if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+
+  const member = await prisma.teamMember.create({
+    data: {
+      userId: req.clientId,
+      name,
+      email,
+      role: role || 'Member',
+      phone: phone || '',
+      notes: notes || null,
+    },
+  });
+
+  ok(res, { member });
+});
+
+app.put('/api/clients/team/:id', requireClient, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, role, phone, notes } = req.body || {};
+  const existing = await prisma.teamMember.findFirst({ where: { id, userId: req.clientId } });
+  if (!existing) return res.status(404).json({ error: 'Team member not found' });
+
+  const member = await prisma.teamMember.update({
+    where: { id },
+    data: {
+      name: name || existing.name,
+      email: email || existing.email,
+      role: role || existing.role,
+      phone: phone ?? existing.phone,
+      notes: notes ?? existing.notes,
+    },
+  });
+
+  ok(res, { member });
+});
+
+app.delete('/api/clients/team/:id', requireClient, async (req, res) => {
+  const { id } = req.params;
+  const existing = await prisma.teamMember.findFirst({ where: { id, userId: req.clientId } });
+  if (!existing) return res.status(404).json({ error: 'Team member not found' });
+
+  await prisma.teamMember.delete({ where: { id } });
+  ok(res, { ok: true });
+});
+
+app.get('/api/admin/clients/:id/team', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const members = await prisma.teamMember.findMany({
+    where: { userId: id },
+    orderBy: { createdAt: 'desc' },
+  });
+  ok(res, { team: members });
 });
 
 // ADMIN: CREATE TEMP PIN FOR CLIENT
@@ -1224,6 +1443,24 @@ app.get('/api/admin/contracts', requireAdmin, async (_req, res) => {
     console.error('admin contracts list error', err);
     fail(res, 500, 'Unable to load contracts');
   }
+});
+
+app.get('/api/admin/contracts/:contractId', requireAdmin, async (req, res) => {
+  const { contractId } = req.params;
+  const contract = await prisma.contract.findUnique({
+    where: { id: contractId },
+    include: {
+      assignments: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          signature: true,
+        },
+      },
+      signatures: true,
+    },
+  });
+  if (!contract) return res.status(404).json({ error: 'Contract not found' });
+  ok(res, { contract });
 });
 
 // ADMIN: CREATE CONTRACT

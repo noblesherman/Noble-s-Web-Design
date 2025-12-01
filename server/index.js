@@ -660,12 +660,12 @@ const corsOptions = {
     const normalized = normalizeOrigin(origin);
     if (allowedOrigins.includes(normalized)) return callback(null, true);
     console.warn(`Blocked CORS origin: ${origin}`);
-    return callback(new Error('Not allowed by CORS'));
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200,
+  optionsSuccessStatus: 204,
 };
 app.use((_, res, next) => {
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -673,13 +673,6 @@ app.use((_, res, next) => {
 });
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-
-app.use((err, req, res, next) => {
-  if (err?.message === 'Not allowed by CORS') {
-    return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
-  }
-  return next(err);
-});
 
 app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
@@ -812,6 +805,7 @@ app.post('/api/admin/2fa/verify', async (req, res) => {
 });
 
 app.post('/api/admin/login', handleAdminLogin);
+app.post('/admin/login', handleAdminLogin);
 
 app.post('/api/auth/login', async (req, res) => {
   const { role, code } = req.body || {};
@@ -823,6 +817,14 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ADMIN CURRENT USER
 app.get('/api/admin/me', requireAdmin, (req, res) => {
+  res.json({
+    id: req.user.id,
+    name: req.user.name,
+    email: req.user.email,
+    role: req.user.role,
+  });
+});
+app.get('/admin/me', requireAdmin, (req, res) => {
   res.json({
     id: req.user.id,
     name: req.user.name,

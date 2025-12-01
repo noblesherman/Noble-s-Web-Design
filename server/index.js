@@ -19,6 +19,8 @@ import { generateContractPdf, generateContractPdfFromTemplate } from './contract
 import { startUptimeMonitor, calculateUptimePercentage } from './uptimeService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Explicitly load .env from the server directory
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 

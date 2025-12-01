@@ -28,10 +28,6 @@ const isServerless = process.env.VERCEL === 'true' || process.env.VERCEL === '1'
 const PORT = Number(process.env.PORT || 4000);
 const DATABASE_URL = process.env.DATABASE_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:5173');
-const API_URL = process.env.VITE_API_URL || process.env.API_URL || 'https://api.noblesweb.design';
-const API_BASE_URL = (API_URL || FRONTEND_URL || 'https://api.noblesweb.design').replace(/\/$/, '');
-process.env.ADMIN_REDIRECT = process.env.ADMIN_REDIRECT || `${FRONTEND_URL.replace(/\/$/, '')}/admin`;
-const ADMIN_REDIRECT = process.env.ADMIN_REDIRECT;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PIN_EXP_MINUTES = Number(process.env.PIN_EXP_MINUTES || 30);
@@ -55,24 +51,10 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const allowedOrigins = Array.from(
-  new Set(
-    [
-      FRONTEND_URL,
-      API_URL,
-      API_BASE_URL,
-      ADMIN_REDIRECT,
-      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
-      'https://noblesweb.design',
-      'https://www.noblesweb.design',
-      'https://api.noblesweb.design',
-      ...(isProd ? [] : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4173']),
-    ]
-      .map(normalizeOrigin)
-      .filter(Boolean)
-  )
-);
+const allowedOrigins = ['https://noblesweb.design'].map(normalizeOrigin).filter(Boolean);
 const COOKIE_DOMAIN = isProd ? '.noblesweb.design' : undefined;
+const ADMIN_COOKIE_NAME = 'admin_token';
+const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missingEnv.length) {
@@ -94,6 +76,49 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY
 
 const ok = (res, payload = {}) => res.json({ success: true, ...payload, data: payload.data ?? payload });
 const fail = (res, status, error) => res.status(status).json({ success: false, error });
+
+const parseCookies = (req) => {
+  const header = req.headers?.cookie;
+  if (!header) return {};
+  return header.split(';').reduce((acc, part) => {
+    const [key, ...rest] = part.trim().split('=');
+    if (!key) return acc;
+    acc[key] = decodeURIComponent(rest.join('=') || '');
+    return acc;
+  }, {});
+};
+
+const buildAdminUser = (user) => ({
+  id: user.id,
+  name: user.name || 'Admin',
+  email: user.email,
+  role: 'ADMIN',
+});
+
+const generateAdminToken = (user) => {
+  return jwt.sign(
+    { sub: user.id, role: 'ADMIN', email: user.email },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+};
+
+const adminCookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: isProd,
+  domain: COOKIE_DOMAIN,
+  maxAge: ADMIN_TOKEN_TTL_MS,
+  path: '/',
+};
+
+const setAdminSessionAndCookie = (req, res, user) => {
+  const payload = buildAdminUser(user);
+  if (req.session) req.session.user = payload;
+  const token = generateAdminToken(user);
+  res.cookie(ADMIN_COOKIE_NAME, token, adminCookieOptions);
+  return payload;
+};
 
 const getClientIp = (req) => {
   const forwarded = req.headers['x-forwarded-for'];
@@ -513,36 +538,31 @@ const ensureClientInvitePin = async ({ email, name, company }) => {
 const handleAdminLogin = async (req, res) => {
   try {
     const { email, password, code } = req.body || {};
-    if (!email || !password || !code) return res.status(400).json({ error: 'Email, password, and code are required' });
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    if (!normalizedEmail || !password) return res.status(400).json({ error: 'Email and password are required' });
 
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return res.status(500).json({ error: 'Admin credentials are not configured' });
 
-    if (email.toLowerCase() !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    const adminUser = await ensureAdminUser();
+    if (normalizedEmail !== adminUser.email.toLowerCase()) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const passwordValid = adminUser.passwordHash ? await bcrypt.compare(password, adminUser.passwordHash) : false;
+    if (!passwordValid) return res.status(401).json({ error: 'Invalid credentials' });
+
+    if (ADMIN_TOTP_SECRET) {
+      if (!code) return res.status(400).json({ error: 'Code is required' });
+
+      const verified = speakeasy.totp.verify({
+        secret: ADMIN_TOTP_SECRET,
+        encoding: 'base32',
+        token: code,
+      });
+
+      if (!verified) return res.status(401).json({ error: 'Invalid 2FA code' });
     }
 
-    if (!ADMIN_TOTP_SECRET) {
-      return res.status(500).json({ error: 'ADMIN_TOTP_SECRET is not configured' });
-    }
-
-    const verified = speakeasy.totp.verify({
-      secret: ADMIN_TOTP_SECRET,
-      encoding: 'base32',
-      token: code,
-    });
-
-    if (!verified) return res.status(401).json({ error: 'Invalid 2FA code' });
-
-    const user = await ensureAdminUser();
-    req.session.user = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role || 'ADMIN',
-    };
-    req.user = req.session.user;
-
-    ok(res, { user: req.session.user });
+    const payload = setAdminSessionAndCookie(req, res, adminUser);
+    ok(res, { user: payload });
   } catch (err) {
     console.error('admin login error', err);
     fail(res, 500, 'Unable to login');
@@ -663,7 +683,7 @@ const corsOptions = {
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   optionsSuccessStatus: 204,
 };
@@ -676,7 +696,7 @@ app.use((req, res, next) => {
     res.header('Vary', 'Origin');
   }
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
@@ -742,27 +762,79 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ADMIN AUTH GUARD
-const requireAdmin = (req, res, next) => {
+const extractAdminToken = (req) => {
+  const cookies = parseCookies(req);
+  if (cookies[ADMIN_COOKIE_NAME]) return cookies[ADMIN_COOKIE_NAME];
+  const authHeader = req.headers.authorization || '';
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  return null;
+};
+
+const authenticateAdminFromRequest = async (req) => {
   if (req.session?.user?.role === 'ADMIN') {
     req.user = req.session.user;
-    return next();
+    return req.session.user;
   }
-  return res.status(401).json({ error: 'Unauthorized' });
+
+  const token = extractAdminToken(req);
+  if (!token) return null;
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (!payload || payload.role !== 'ADMIN') return null;
+    const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || user.role !== 'ADMIN') return null;
+    const adminUser = buildAdminUser(user);
+    if (req.session) req.session.user = adminUser;
+    req.user = adminUser;
+    return adminUser;
+  } catch (err) {
+    console.error('admin token verification failed', err?.message || err);
+    return null;
+  }
+};
+
+// ADMIN AUTH GUARD
+const requireAdmin = async (req, res, next) => {
+  try {
+    const adminUser = await authenticateAdminFromRequest(req);
+    if (!adminUser) return res.status(401).json({ error: 'Unauthorized' });
+    req.user = adminUser;
+    return next();
+  } catch (err) {
+    console.error('admin auth error', err);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 };
 
 const ensureAdminUser = async () => {
-  if (!ADMIN_EMAIL) throw new Error('ADMIN_EMAIL not configured');
-  const user = await prisma.user.upsert({
-    where: { email: ADMIN_EMAIL },
-    update: { role: 'ADMIN' },
-    create: {
-      email: ADMIN_EMAIL,
-      name: 'Admin',
-      role: 'ADMIN',
-    },
-  });
-  return user;
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) throw new Error('Admin credentials not configured');
+  const email = ADMIN_EMAIL.toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email } });
+
+  if (!existing) {
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    return prisma.user.create({
+      data: { email, name: 'Admin', role: 'ADMIN', passwordHash },
+    });
+  }
+
+  const passwordMatches = existing.passwordHash ? await bcrypt.compare(ADMIN_PASSWORD, existing.passwordHash) : false;
+  if (!passwordMatches || existing.role !== 'ADMIN') {
+    const passwordHash = passwordMatches ? existing.passwordHash : await bcrypt.hash(ADMIN_PASSWORD, 12);
+    return prisma.user.update({
+      where: { email },
+      data: { role: 'ADMIN', passwordHash },
+    });
+  }
+
+  if (!existing.name) {
+    return prisma.user.update({ where: { email }, data: { name: 'Admin', role: 'ADMIN' } });
+  }
+
+  return existing;
 };
 
 // ADMIN 2FA SETUP
@@ -837,20 +909,10 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ADMIN CURRENT USER
 app.get('/api/admin/me', requireAdmin, (req, res) => {
-  res.json({
-    id: req.user.id,
-    name: req.user.name,
-    email: req.user.email,
-    role: req.user.role,
-  });
+  ok(res, { user: req.user });
 });
 app.get('/admin/me', requireAdmin, (req, res) => {
-  res.json({
-    id: req.user.id,
-    name: req.user.name,
-    email: req.user.email,
-    role: req.user.role,
-  });
+  ok(res, { user: req.user });
 });
 
 app.get('/api/users', requireAdmin, async (_req, res) => {
@@ -866,10 +928,14 @@ app.get('/api/users', requireAdmin, async (_req, res) => {
 });
 
 // ADMIN LOGOUT
-app.post(['/logout', '/api/logout'], (req, res) => {
+app.post(['/logout', '/api/logout', '/admin/logout', '/api/admin/logout'], (req, res) => {
   req.session?.destroy(() => {});
-  res.clearCookie('connect.sid');
-  res.json({ ok: true });
+  const clearCookieOptions = COOKIE_DOMAIN
+    ? { path: '/', domain: COOKIE_DOMAIN }
+    : { path: '/' };
+  res.clearCookie('connect.sid', clearCookieOptions);
+  res.clearCookie(ADMIN_COOKIE_NAME, { ...clearCookieOptions, sameSite: adminCookieOptions.sameSite, secure: adminCookieOptions.secure });
+  res.json({ success: true });
 });
 
 app.post('/api/admin/clients/issue-pin', requireAdmin, async (req, res) => {

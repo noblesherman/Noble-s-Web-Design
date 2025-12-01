@@ -37,3 +37,31 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+@keyframes rainbowShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.rainbow-cta {
+  background: linear-gradient(120deg, #f97316, #ec4899, #8b5cf6, #22d3ee, #f97316);
+  background-size: 260% 260%;
+  box-shadow: 0 12px 30px rgba(236, 72, 153, 0.25);
+  animation: rainbowShift 9s ease infinite;
+}
+
+.rainbow-cta:hover {
+  box-shadow: 0 16px 36px rgba(34, 211, 238, 0.35);
+}
+
+.rainbow-cta:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
+}

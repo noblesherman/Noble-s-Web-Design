@@ -1,12 +1,9 @@
 // server/index.js
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 import dotenv from 'dotenv';
 import express from 'express';
 import session from 'express-session';
-import passport from 'passport';
-import { Strategy as GitHubStrategy } from 'passport-github2';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import bcrypt from 'bcrypt';
@@ -16,10 +13,11 @@ import { PrismaSessionStore } from '@quixo3/prisma-session-store';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 import { randomUUID } from 'crypto';
+import speakeasy from 'speakeasy';
+import qrcode from 'qrcode';
 import { generateContractPdf, generateContractPdfFromTemplate } from './contractPdf.js';
 import { startUptimeMonitor, calculateUptimePercentage } from './uptimeService.js';
 
-const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
@@ -28,13 +26,11 @@ const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const isServerless = process.env.VERCEL === 'true' || process.env.VERCEL === '1' || process.env.SERVERLESS === 'true';
 const PORT = Number(process.env.PORT || 4000);
 const DATABASE_URL = process.env.DATABASE_URL;
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.NEXTAUTH_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:5173');
+const FRONTEND_URL = process.env.FRONTEND_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:5173');
 const API_URL = process.env.VITE_API_URL || process.env.API_URL || 'https://api.noblesweb.design';
-const API_BASE_URL = (process.env.NEXTAUTH_URL || API_URL || FRONTEND_URL || 'https://api.noblesweb.design').replace(/\/$/, '');
+const API_BASE_URL = (API_URL || FRONTEND_URL || 'https://api.noblesweb.design').replace(/\/$/, '');
 process.env.ADMIN_REDIRECT = process.env.ADMIN_REDIRECT || `${FRONTEND_URL.replace(/\/$/, '')}/admin`;
 const ADMIN_REDIRECT = process.env.ADMIN_REDIRECT;
-process.env.GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'https://api.noblesweb.design/auth/github/callback';
-const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PIN_EXP_MINUTES = Number(process.env.PIN_EXP_MINUTES || 30);
@@ -46,7 +42,10 @@ const UPTIME_POLL_MS = Number(process.env.UPTIME_POLL_MS || 30000);
 const VALID_CHECK_INTERVALS = [1, 5, 15, 60];
 const TICKET_STATUSES = ['Open', 'In Progress', 'Closed'];
 const INVITE_TOKEN_TTL_MINUTES = Number(process.env.INVITE_TOKEN_TTL_MINUTES || 30);
-const REQUIRED_ENV = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_CALLBACK_URL'];
+const REQUIRED_ENV = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'ADMIN_EMAIL', 'ADMIN_PASSWORD'];
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || '';
 const normalizeOrigin = (value) => {
   if (!value) return null;
   try {
@@ -60,7 +59,6 @@ const allowedOrigins = Array.from(new Set([
   API_URL,
   API_BASE_URL,
   ADMIN_REDIRECT,
-  process.env.NEXTAUTH_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
   'https://noblesweb.design',
   'https://api.noblesweb.design',
@@ -604,70 +602,97 @@ app.use(
   })
 );
 
-app.use(passport.initialize());
-app.use(passport.session());
-
-// PASSPORT SERIALIZATION
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await prisma.user.findUnique({ where: { id: String(id) } });
-    done(null, user);
-  } catch (err) {
-    done(err, null);
+app.use((req, _res, next) => {
+  if (req.session?.user) {
+    req.user = req.session.user;
   }
+  next();
 });
-
-// GITHUB STRATEGY
-passport.use(
-  new GitHubStrategy(
-    {
-      clientID: process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
-      callbackURL: GITHUB_CALLBACK_URL,
-      scope: ['user:email'],
-    },
-    async (_accessToken, _refreshToken, profile, done) => {
-      try {
-        const email = profile.emails?.[0]?.value;
-
-        const user = await prisma.user.upsert({
-          where: { githubId: profile.id },
-          update: {
-            name: profile.displayName || profile.username,
-            email,
-            role: 'ADMIN',
-          },
-          create: {
-            githubId: profile.id,
-            name: profile.displayName || profile.username,
-            email,
-            role: 'ADMIN',
-          },
-        });
-
-        console.log('GitHub OAuth passport verify success', { userId: user.id, githubId: profile.id });
-        return done(null, user);
-      } catch (err) {
-        console.error('GitHub OAuth passport verify failed', err);
-        return done(err);
-      }
-    }
-  )
-);
-
-// AUTH ROUTES (GITHUB OAUTH)
-const authRouter = require('./routes/auth.js');
-app.use('/', authRouter);
 
 // ADMIN AUTH GUARD
 const requireAdmin = (req, res, next) => {
-  if (req.isAuthenticated?.() && req.user?.role === 'ADMIN') return next();
+  if (req.session?.user?.role === 'ADMIN') {
+    req.user = req.session.user;
+    return next();
+  }
   return res.status(401).json({ error: 'Unauthorized' });
 };
+
+const ensureAdminUser = async () => {
+  if (!ADMIN_EMAIL) throw new Error('ADMIN_EMAIL not configured');
+  const user = await prisma.user.upsert({
+    where: { email: ADMIN_EMAIL },
+    update: { role: 'ADMIN' },
+    create: {
+      email: ADMIN_EMAIL,
+      name: 'Admin',
+      role: 'ADMIN',
+    },
+  });
+  return user;
+};
+
+// ADMIN 2FA SETUP
+app.get('/api/admin/2fa/setup', async (req, res) => {
+  try {
+    const providedPassword = req.query.password || req.headers['x-admin-password'];
+    if (!ADMIN_PASSWORD || providedPassword !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid admin password' });
+    }
+
+    const secret = speakeasy.generateSecret({
+      name: `Noble Web Designs (${ADMIN_EMAIL || 'admin@noblesweb.design'})`,
+    });
+
+    console.log('Generated ADMIN_TOTP_SECRET (add to .env):', secret.base32);
+    const qrCodeDataUrl = await qrcode.toDataURL(secret.otpauth_url);
+
+    ok(res, { qrCodeDataUrl, secret: secret.base32 });
+  } catch (err) {
+    console.error('2FA setup error', err);
+    fail(res, 500, 'Unable to generate 2FA secret');
+  }
+});
+
+// ADMIN LOGIN (PASSWORD + TOTP)
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const { email, password, code } = req.body || {};
+    if (!email || !password || !code) return res.status(400).json({ error: 'Email, password, and code are required' });
+
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return res.status(500).json({ error: 'Admin credentials are not configured' });
+
+    if (email.toLowerCase() !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (!ADMIN_TOTP_SECRET) {
+      return res.status(500).json({ error: 'ADMIN_TOTP_SECRET is not configured' });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: ADMIN_TOTP_SECRET,
+      encoding: 'base32',
+      token: code,
+    });
+
+    if (!verified) return res.status(401).json({ error: 'Invalid 2FA code' });
+
+    const user = await ensureAdminUser();
+    req.session.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role || 'ADMIN',
+    };
+    req.user = req.session.user;
+
+    ok(res, { user: req.session.user });
+  } catch (err) {
+    console.error('admin login error', err);
+    fail(res, 500, 'Unable to login');
+  }
+});
 
 // ADMIN CURRENT USER
 app.get('/api/admin/me', requireAdmin, (req, res) => {
@@ -681,7 +706,6 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
 
 // ADMIN LOGOUT
 app.post(['/logout', '/api/logout'], (req, res) => {
-  req.logout?.(() => {});
   req.session?.destroy(() => {});
   res.clearCookie('connect.sid');
   res.json({ ok: true });

@@ -66,7 +66,7 @@ const allowedOrigins = Array.from(
       'https://noblesweb.design',
       'https://www.noblesweb.design',
       'https://api.noblesweb.design',
-      ...(isProd ? [] : ['http://localhost:3000']),
+      ...(isProd ? [] : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4173']),
     ]
       .map(normalizeOrigin)
       .filter(Boolean)
@@ -659,12 +659,13 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     const normalized = normalizeOrigin(origin);
     if (allowedOrigins.includes(normalized)) return callback(null, true);
-    return callback(null, false);
+    console.warn(`Blocked CORS origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 204,
+  optionsSuccessStatus: 200,
 };
 app.use((_, res, next) => {
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -672,6 +673,13 @@ app.use((_, res, next) => {
 });
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+app.use((err, req, res, next) => {
+  if (err?.message === 'Not allowed by CORS') {
+    return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
+  }
+  return next(err);
+});
 
 app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));

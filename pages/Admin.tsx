@@ -7,7 +7,6 @@ import {
   Users,
   Settings,
   Plus,
-  Github,
   Trash2,
   Edit,
   LogOut,
@@ -17,6 +16,7 @@ import {
   LifeBuoy,
   Loader2,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { BLOG_POSTS } from "../constants";
 import { BlogPost } from "../types";
 import { AlertSettings, UptimeLog, UptimeTarget } from "../types/admin";
@@ -26,6 +26,7 @@ import { AlertSettingsPanel } from "../components/admin/AlertSettingsPanel";
 export const Admin: React.FC = () => {
   const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
   const DOCUSEAL_EMBED_URL = import.meta.env.VITE_DOCUSEAL_EMBED_URL || "https://www.docuseal.com/docs/embed";
+  const navigate = useNavigate();
 
   const [isAuth, setIsAuth] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -132,6 +133,13 @@ export const Admin: React.FC = () => {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuth) {
+      navigate("/admin/login", { replace: true });
+    }
+  }, [loading, isAuth, navigate]);
 
   useEffect(() => {
     if (!isAuth) return;
@@ -806,41 +814,6 @@ export const Admin: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center text-white">
         Loading...
-      </div>
-    );
-  }
-
-  if (!isAuth) {
-    return (
-      <div className="relative min-h-screen flex items-center justify-center px-4 bg-[#05070f] text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-70 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(99,102,241,0.18),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(16,185,129,0.14),transparent_35%),radial-gradient(circle_at_50%_80%,rgba(236,72,153,0.16),transparent_35%)]" />
-        <motion.div
-          initial={{ opacity: 0, y: 18, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.45, ease: "easeOut" }}
-          className="relative w-full max-w-xl"
-        >
-          <div className={`${panelClass} p-10 text-center`}>
-            <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-white/10 shadow-inner shadow-black/40">
-              <div className="w-9 h-9 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-primary/30">
-                N
-              </div>
-            </div>
-            <p className={labelClass}>Admin Console</p>
-            <h2 className="text-3xl font-bold mt-3">Noble Web Designs</h2>
-            <p className="text-muted mt-2 mb-8">Authenticate with GitHub to manage content, clients, and uptime.</p>
-
-            <button
-              onClick={() => {
-                window.location.href = `${API_BASE}/api/auth/github`;
-              }}
-              className="w-full flex items-center justify-center gap-3 bg-white text-background hover:bg-slate-100 py-3.5 px-4 rounded-xl font-semibold transition-all shadow-lg shadow-primary/20"
-            >
-              <Github size={20} />
-              Continue with GitHub
-            </button>
-          </div>
-        </motion.div>
       </div>
     );
   }

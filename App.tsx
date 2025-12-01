@@ -9,6 +9,8 @@ import { Work } from './pages/Work';
 import { WorkDetail } from './pages/WorkDetail';
 import { Contact } from './pages/Contact';
 import { Admin } from './pages/Admin';
+import AdminLogin from './pages/AdminLogin';
+import Admin2FASetup from './pages/Admin2FASetup';
 import { Services } from './pages/Services';
 import { About } from './pages/About';
 import { Blog } from './pages/Blog';
@@ -76,6 +78,9 @@ const App = () => {
 
             {/* REAL ADMIN ROUTE FOR GITHUB OAUTH */}
             <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/dashboard" element={<Admin />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/2fa/setup" element={<Admin2FASetup />} />
           </Routes>
         </main>
 

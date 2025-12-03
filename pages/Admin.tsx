@@ -304,6 +304,20 @@ export const Admin: React.FC = () => {
       const data = await res.json();
       if (res.ok && data.client) {
         setManualStatus("Client added.");
+        setClients((prev) => {
+          if (!Array.isArray(prev)) return [data.client];
+          const exists = prev.find((c: any) => c.id === data.client.id);
+          if (exists) {
+            return prev.map((c: any) => (c.id === data.client.id ? data.client : c));
+          }
+          return [data.client, ...prev];
+        });
+        if (data.client.id) {
+          setSelectedBillingClientId(data.client.id);
+          setFileClientId(data.client.id);
+          setTeamViewClientId(data.client.id);
+          loadClientCharges(data.client.id);
+        }
         setManualName("");
         setManualEmail("");
         setManualCompany("");

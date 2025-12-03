@@ -1,57 +1,56 @@
 import React, { useState } from 'react';
-import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import { PaymentElement } from '@stripe/react-stripe-js';
+import { useCheckout } from '@stripe/react-stripe-js/checkout';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 type PaymentFormProps = {
-  clientSecret: string;
-  sessionId: string;
-  returnUrl: string;
   onError?: (message: string) => void;
-  onSuccess?: () => void;
+  onSuccess?: (session?: any) => void;
   submitLabel?: string;
 };
 
 export const PaymentForm: React.FC<PaymentFormProps> = ({
-  clientSecret,
-  sessionId,
-  returnUrl,
   onError,
   onSuccess,
   submitLabel = 'Pay now',
 }) => {
-  const stripe = useStripe();
-  const elements = useElements();
+  const checkoutState = useCheckout();
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!stripe || !elements || !clientSecret) {
-      onError?.('Payment form not ready. Please try again.');
+
+    if (checkoutState.type === 'loading') {
+      const msg = 'Payment form is loading. Please try again.';
+      setMessage(msg);
+      onError?.(msg);
+      return;
+    }
+
+    if (checkoutState.type === 'error') {
+      const msg = checkoutState.error?.message || 'Payment form is not ready. Please refresh.';
+      setMessage(msg);
+      onError?.(msg);
       return;
     }
 
     setSubmitting(true);
     setMessage(null);
-    const { error } = await stripe.confirmPayment({
-      elements,
-      clientSecret,
-      confirmParams: {
-        return_url: `${returnUrl}?session_id=${sessionId}`,
-      },
-    });
+    const result = await checkoutState.checkout.confirm();
 
-    if (error) {
-      const msg = error.message || 'Unable to confirm payment. Please check your card details.';
+    if (result.type === 'error') {
+      const msg = result.error?.message || 'Unable to confirm payment. Please check your card details.';
       setMessage(msg);
       onError?.(msg);
       setSubmitting(false);
       return;
     }
 
-    setMessage('Redirecting to secure confirmation...');
-    onSuccess?.();
+    setMessage('Payment submitted...');
+    onSuccess?.(result.session);
+    setSubmitting(false);
   };
 
   return (
@@ -67,7 +66,7 @@ export const PaymentForm: React.FC<PaymentFormProps> = ({
       )}
 
       <div className="flex items-center gap-3">
-        <Button type="submit" disabled={submitting || !stripe || !elements}>
+        <Button type="submit" disabled={submitting || checkoutState.type !== 'success'}>
           {submitting ? (
             <span className="inline-flex items-center gap-2">
               <Loader2 className="animate-spin" size={14} /> Processing

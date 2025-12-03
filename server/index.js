@@ -719,180 +719,64 @@ const handleClientAuthComplete = async (req, res) => {
   }
 };
 
-const fetchAssignedItemsForUser = async (userId) => {
-  if (!userId) return [];
-  return prisma.assignedItem.findMany({
-    where: { userId },
-    include: {
-      billableItem: true,
-      payments: {
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      },
-    },
+const findClientRecord = async (clientIdOrUserId) => {
+  if (!clientIdOrUserId) return null;
+
+  const direct = await prisma.client.findUnique({ where: { id: clientIdOrUserId } });
+  if (direct) return direct;
+
+  const byUser = await prisma.client.findUnique({ where: { userId: clientIdOrUserId } });
+  if (byUser) return byUser;
+
+  const user = await prisma.user.findUnique({ where: { id: clientIdOrUserId } });
+  if (user) {
+    return ensureClientRecord({ userId: user.id, name: user.name });
+  }
+
+  return null;
+};
+
+const fetchChargesForClient = async (clientId) => {
+  if (!clientId) return [];
+  return prisma.clientCharge.findMany({
+    where: { clientId },
     orderBy: { createdAt: 'desc' },
-  });
-};
-
-const upsertPaymentRecord = async ({
-  sessionId,
-  clientSecret,
-  paymentIntentId,
-  invoiceId,
-  assignedItemId,
-  userId,
-  amountCents,
-  currency,
-  mode,
-  status,
-}) => {
-  const normalizedCurrency = currency ? normalizeCurrency(currency) : undefined;
-  const search = [];
-  if (sessionId) search.push({ stripeSessionId: sessionId });
-  if (paymentIntentId) search.push({ paymentIntentId });
-  if (invoiceId) search.push({ invoiceId });
-
-  const existing = search.length
-    ? await prisma.paymentRecord.findFirst({ where: { OR: search } })
-    : null;
-
-  let resolvedUserId = userId || existing?.userId;
-  if (!resolvedUserId && assignedItemId) {
-    const assignment = await prisma.assignedItem.findUnique({
-      where: { id: assignedItemId },
-      select: { userId: true },
-    });
-    resolvedUserId = assignment?.userId || resolvedUserId;
-  }
-
-  const data = {
-    clientSecret: clientSecret || undefined,
-    paymentIntentId: paymentIntentId || existing?.paymentIntentId || undefined,
-    invoiceId: invoiceId || existing?.invoiceId || undefined,
-    assignedItemId: assignedItemId || existing?.assignedItemId || undefined,
-    userId: resolvedUserId,
-    amountCents: amountCents ?? existing?.amountCents ?? undefined,
-    currency: normalizedCurrency || existing?.currency || undefined,
-    mode: mode || existing?.mode || undefined,
-    status: status || existing?.status || 'PENDING',
-  };
-
-  if (!data.userId) {
-    throw new Error('userId is required for payment records');
-  }
-
-  if (existing) {
-    return prisma.paymentRecord.update({
-      where: { id: existing.id },
-      data,
-    });
-  }
-
-  return prisma.paymentRecord.create({
-    data: {
-      stripeSessionId: sessionId || paymentIntentId || invoiceId || randomUUID(),
-      ...data,
+    select: {
+      id: true,
+      label: true,
+      amountCents: true,
+      currency: true,
+      status: true,
+      stripeSessionId: true,
+      createdAt: true,
+      updatedAt: true,
     },
   });
 };
 
-const markAssignedItemPaid = async ({ assignedItemId }) => {
-  if (!assignedItemId) return null;
-  try {
-    return await prisma.assignedItem.update({
-      where: { id: assignedItemId },
-      data: { status: 'PAID', paidAt: new Date() },
-    });
-  } catch (err) {
-    if (isRecordNotFoundError(err)) return null;
-    throw err;
-  }
-};
-
-const createSessionForAssignedItem = async ({ userId, assignedItemId }) => {
+const ensureStripeClient = () => {
   if (!stripe) throw new Error('Stripe is not configured');
-  if (!userId || !assignedItemId) throw new Error('userId and assignedItemId are required');
+  return stripe;
+};
 
-  const assignment = await prisma.assignedItem.findFirst({
-    where: { id: assignedItemId, userId },
-    include: {
-      billableItem: true,
-      user: { select: { id: true, email: true, name: true } },
-    },
+const buildChargeReturnUrl = () => `${FRONTEND_URL.replace(/\/$/, '')}/portal/billing/complete?session_id={CHECKOUT_SESSION_ID}`;
+
+const markChargePaid = async ({ chargeId, stripeSessionId }) => {
+  if (!chargeId && !stripeSessionId) return null;
+  const existing = await prisma.clientCharge.findFirst({
+    where: chargeId ? { id: chargeId } : { stripeSessionId },
   });
-
-  if (!assignment) throw new Error('Item not found for this user');
-  if (assignment.status === 'PAID') throw new Error('This item is already paid');
-
-  const currency = normalizeCurrency(assignment.currency || assignment.billableItem?.currency || 'usd');
-  const amountCents = assignment.amountCents ?? assignment.billableItem?.amountCents ?? null;
-  const interval = assignment.recurringInterval || assignment.billableItem?.recurringInterval || 'month';
-
-  if (!assignment.stripePriceId && (!amountCents || amountCents <= 0)) {
-    throw new Error('Amount is required for this item');
+  if (!existing) return null;
+  if (existing.status === 'paid') {
+    if (!existing.stripeSessionId && stripeSessionId) {
+      return prisma.clientCharge.update({ where: { id: existing.id }, data: { stripeSessionId } });
+    }
+    return existing;
   }
-
-  const metadata = {
-    assignedItemId: assignment.id,
-    userId: assignment.userId,
-  };
-
-  const mode = assignment.type === 'RECURRING' ? 'subscription' : 'payment';
-  const lineItem = assignment.stripePriceId
-    ? { price: assignment.stripePriceId, quantity: 1 }
-    : {
-        price_data: {
-          currency,
-          product_data: {
-            name: assignment.title,
-            description: assignment.description ? assignment.description.slice(0, 500) : undefined,
-          },
-          unit_amount: amountCents,
-          ...(mode === 'subscription' ? { recurring: { interval } } : {}),
-        },
-        quantity: 1,
-      };
-
-  const baseReturnUrl = `${FRONTEND_URL.replace(/\/$/, '')}/checkout/return?session_id={CHECKOUT_SESSION_ID}`;
-
-  const session = await stripe.checkout.sessions.create({
-    ui_mode: 'custom',
-    mode,
-    line_items: [lineItem],
-    automatic_tax: { enabled: true },
-    client_reference_id: assignment.userId,
-    customer_email: assignment.user?.email || undefined,
-    metadata,
-    return_url: baseReturnUrl,
-    payment_intent_data: { metadata },
-    subscription_data: { metadata },
+  return prisma.clientCharge.update({
+    where: { id: existing.id },
+    data: { status: 'paid', stripeSessionId: stripeSessionId || existing.stripeSessionId || null },
   });
-
-  if (session.payment_intent && typeof session.payment_intent === 'string') {
-    await stripe.paymentIntents.update(session.payment_intent, {
-      metadata: { ...metadata, sessionId: session.id },
-    }).catch((err) => console.error('payment_intent metadata update failed', err?.message || err));
-  }
-
-  if (session.subscription && typeof session.subscription === 'string') {
-    await stripe.subscriptions.update(session.subscription, {
-      metadata: { ...metadata, sessionId: session.id },
-    }).catch((err) => console.error('subscription metadata update failed', err?.message || err));
-  }
-
-  await upsertPaymentRecord({
-    sessionId: session.id,
-    clientSecret: session.client_secret || undefined,
-    paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : undefined,
-    assignedItemId: assignment.id,
-    userId: assignment.userId,
-    amountCents,
-    currency,
-    mode: session.mode || mode,
-    status: 'PENDING',
-  });
-
-  return { session, assignment };
 };
 
 // BASIC MIDDLEWARE
@@ -947,7 +831,7 @@ app.use(bodyParser.json({
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
 // Allow both /api/... and unprefixed paths like /admin/login by rewriting when needed.
-const aliasPrefixes = ['/client', '/clients', '/contact', '/logout', '/auth'];
+const aliasPrefixes = ['/client', '/clients', '/portal', '/contact', '/logout', '/auth'];
 app.use((req, _res, next) => {
   if (req.url.startsWith('/api/')) return next();
   const hit = aliasPrefixes.find((prefix) => req.url === prefix || req.url.startsWith(`${prefix}/`));
@@ -1535,117 +1419,128 @@ app.post('/api/client/contracts/:assignmentId/sign', requireClient, async (req, 
   }
 });
 
-// CLIENT: BILLABLE ITEMS + PAYMENTS
-app.get('/api/client/billing/items', requireClient, async (req, res) => {
+// CLIENT: BILLING + STRIPE CHECKOUT
+app.get(['/api/portal/me/charges', '/portal/me/charges'], requireClient, async (req, res) => {
   try {
-    const items = await fetchAssignedItemsForUser(req.clientId);
-    ok(res, { items });
+    const client = await findClientRecord(req.clientId);
+    if (!client) return fail(res, 404, 'Client not found');
+    const charges = await fetchChargesForClient(client.id);
+    ok(res, { charges });
   } catch (err) {
-    console.error('list client billable items error', err);
-    fail(res, 500, 'Unable to load billable items');
+    console.error('list client charges error', err);
+    fail(res, 500, 'Unable to load charges');
   }
 });
 
-app.post('/api/payments/create-session', requireClient, async (req, res) => {
+app.post(['/api/portal/charges/:chargeId/create-checkout-session', '/portal/charges/:chargeId/create-checkout-session'], requireClient, async (req, res) => {
   try {
-    const { userId, itemId } = req.body || {};
-    if (!userId || !itemId) return fail(res, 400, 'userId and itemId are required');
-    if (userId !== req.clientId) return fail(res, 403, 'You can only pay for your own items');
-    if (!stripe) return fail(res, 500, 'Stripe is not configured');
+    const stripeClient = ensureStripeClient();
+    const { chargeId } = req.params;
+    const client = await findClientRecord(req.clientId);
+    if (!client) return fail(res, 404, 'Client not found');
 
-    const { session, assignment } = await createSessionForAssignedItem({ userId, assignedItemId: itemId });
+    const charge = await prisma.clientCharge.findFirst({
+      where: { id: chargeId, clientId: client.id },
+      include: {
+        client: { include: { user: true } },
+      },
+    });
+
+    if (!charge) return fail(res, 404, 'Charge not found');
+    if (charge.status === 'paid') return fail(res, 400, 'Charge already paid');
+
+    const currency = normalizeCurrency(charge.currency || 'usd');
+    const metadata = {
+      chargeId: charge.id,
+      clientId: charge.clientId,
+      userId: client.userId,
+    };
+
+    const session = await stripeClient.checkout.sessions.create({
+      ui_mode: 'custom',
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency,
+            product_data: { name: charge.label },
+            unit_amount: charge.amountCents,
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: charge.client?.user?.email || undefined,
+      client_reference_id: charge.clientId,
+      return_url: buildChargeReturnUrl(),
+      payment_intent_data: { metadata },
+      metadata,
+    });
+
+    await prisma.clientCharge.update({
+      where: { id: charge.id },
+      data: { stripeSessionId: session.id },
+    });
 
     ok(res, {
-      sessionId: session.id,
       clientSecret: session.client_secret,
-      url: session.url,
-      item: assignment,
+      sessionId: session.id,
+      chargeId: charge.id,
     });
   } catch (err) {
-    console.error('create checkout session error', err);
-    fail(res, 500, err?.message || 'Unable to create checkout session');
+    console.error('create custom checkout session error', err);
+    fail(res, 500, err?.message || 'Unable to start checkout');
   }
 });
 
-app.get('/api/payments/session-status', requireClient, async (req, res) => {
+app.get(['/api/portal/checkout-session-status', '/portal/checkout-session-status'], requireClient, async (req, res) => {
   try {
-    if (!stripe) return fail(res, 500, 'Stripe is not configured');
+    const stripeClient = ensureStripeClient();
     const sessionId = typeof req.query.session_id === 'string' ? req.query.session_id : null;
     if (!sessionId) return fail(res, 400, 'session_id is required');
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['payment_intent', 'invoice', 'subscription'],
+    const session = await stripeClient.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent'],
     });
-
     if (!session) return fail(res, 404, 'Session not found');
+
     const metadata = session.metadata || {};
     if (metadata.userId && metadata.userId !== req.clientId) {
       return fail(res, 403, 'You cannot view this session');
     }
 
-    const paymentIntent = typeof session.payment_intent === 'object' && session.payment_intent !== null
-      ? session.payment_intent
-      : null;
-    const invoiceId = typeof session.invoice === 'string' ? session.invoice : session.invoice?.id;
+    const client = await findClientRecord(req.clientId);
+    if (!client) return fail(res, 404, 'Client not found');
 
-    const assignedItemId = metadata.assignedItemId;
-    let assignedItem = null;
-    if (assignedItemId) {
-      assignedItem = await prisma.assignedItem.findFirst({
-        where: { id: assignedItemId, userId: req.clientId },
-        include: {
-          billableItem: true,
-          payments: { orderBy: { createdAt: 'desc' }, take: 5 },
-        },
-      });
-    }
+    let charge = await prisma.clientCharge.findFirst({
+      where: {
+        clientId: client.id,
+        OR: [
+          { stripeSessionId: session.id },
+          metadata.chargeId ? { id: metadata.chargeId } : null,
+        ].filter(Boolean),
+      },
+    });
 
     const paymentStatus = session.payment_status;
     const status = session.status;
-    const amountCents = session.amount_total ?? assignedItem?.amountCents ?? null;
-    const currency = session.currency || assignedItem?.currency || 'usd';
 
-    if (paymentStatus === 'paid' || status === 'complete') {
-      await markAssignedItemPaid({ assignedItemId });
-      await upsertPaymentRecord({
-        sessionId: session.id,
-        clientSecret: session.client_secret || undefined,
-        paymentIntentId: paymentIntent?.id || undefined,
-        invoiceId,
-        assignedItemId,
-        userId: req.clientId,
-        amountCents,
-        currency,
-        mode: session.mode,
-        status: 'SUCCEEDED',
-      });
-    } else {
-      await upsertPaymentRecord({
-        sessionId: session.id,
-        clientSecret: session.client_secret || undefined,
-        paymentIntentId: paymentIntent?.id || undefined,
-        invoiceId,
-        assignedItemId,
-        userId: req.clientId,
-        amountCents,
-        currency,
-        mode: session.mode,
-        status: paymentStatus === 'unpaid' || paymentStatus === 'requires_payment_method' ? 'REQUIRES_PAYMENT' : 'PENDING',
-      });
+    if ((paymentStatus === 'paid' || status === 'complete') && (charge || metadata.chargeId)) {
+      charge = await markChargePaid({ chargeId: charge?.id || metadata.chargeId, stripeSessionId: session.id });
     }
 
+    const amountCents = session.amount_total ?? charge?.amountCents ?? null;
+    const currency = session.currency || charge?.currency || 'usd';
+
     ok(res, {
-      sessionId: session.id,
-      status,
+      status: status || 'open',
       paymentStatus,
-      clientSecret: session.client_secret,
-      amountTotal: amountCents,
+      chargeId: charge?.id || metadata.chargeId || null,
+      amountCents,
       currency,
-      assignedItem,
-      paymentIntentStatus: paymentIntent?.status,
+      clientSecret: session.client_secret,
     });
   } catch (err) {
-    console.error('session status error', err);
+    console.error('checkout session status error', err);
     fail(res, 500, err?.message || 'Unable to load session');
   }
 });
@@ -1670,69 +1565,17 @@ app.post('/api/payments/webhook', async (req, res) => {
 
   try {
     switch (event.type) {
-      case 'payment_intent.succeeded': {
-        const intent = event.data.object;
-        const assignedItemId = intent?.metadata?.assignedItemId;
-        let userId = intent?.metadata?.userId;
-        const sessionId = intent?.metadata?.sessionId;
-
-        if (!userId && assignedItemId) {
-          const assignment = await prisma.assignedItem.findUnique({
-            where: { id: assignedItemId },
-            select: { userId: true },
-          });
-          userId = assignment?.userId;
-        }
-
-        if (assignedItemId) await markAssignedItemPaid({ assignedItemId });
-        await upsertPaymentRecord({
-          sessionId,
-          paymentIntentId: intent.id,
-          assignedItemId,
-          userId,
-          amountCents: intent.amount_received || intent.amount,
-          currency: intent.currency,
-          mode: intent.setup_future_usage ? 'setup' : 'payment',
-          status: 'SUCCEEDED',
-        });
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const chargeId = session?.metadata?.chargeId;
+        await markChargePaid({ chargeId, stripeSessionId: session?.id });
         break;
       }
-      case 'invoice.paid': {
-        const invoice = event.data.object;
-        let assignedItemId = invoice?.metadata?.assignedItemId;
-        let userId = invoice?.metadata?.userId;
-        const sessionId = invoice?.metadata?.sessionId;
-        const subscriptionId = invoice?.subscription;
-
-        if ((!assignedItemId || !userId) && subscriptionId) {
-          try {
-            const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-            assignedItemId = assignedItemId || subscription?.metadata?.assignedItemId;
-            userId = userId || subscription?.metadata?.userId;
-          } catch (err) {
-            console.error('subscription lookup failed', err?.message || err);
-          }
-        }
-
-        if (!userId && assignedItemId) {
-          const assignment = await prisma.assignedItem.findUnique({
-            where: { id: assignedItemId },
-            select: { userId: true },
-          });
-          userId = assignment?.userId;
-        }
-
-        if (assignedItemId) await markAssignedItemPaid({ assignedItemId });
-        await upsertPaymentRecord({
-          sessionId,
-          invoiceId: invoice.id,
-          assignedItemId,
-          userId,
-          amountCents: invoice.amount_paid,
-          currency: invoice.currency,
-          mode: 'subscription',
-          status: 'SUCCEEDED',
-        });
+      case 'payment_intent.succeeded': {
+        const intent = event.data.object;
+        const chargeId = intent?.metadata?.chargeId;
+        const sessionId = intent?.metadata?.sessionId;
+        await markChargePaid({ chargeId, stripeSessionId: sessionId });
         break;
       }
       default:
@@ -1980,253 +1823,75 @@ app.get('/api/admin/clients', requireAdmin, async (_req, res) => {
   ok(res, { clients: mapped });
 });
 
-// ADMIN: BILLABLE ITEMS
-app.get('/api/admin/billing/items', requireAdmin, async (_req, res) => {
+// ADMIN: CLIENT CHARGES
+app.get(['/api/admin/clients/:clientId/charges', '/admin/clients/:clientId/charges'], requireAdmin, async (req, res) => {
   try {
-    const items = await prisma.billableItem.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-    ok(res, { items });
+    const { clientId } = req.params;
+    const client = await findClientRecord(clientId);
+    if (!client) return fail(res, 404, 'Client not found');
+
+    const charges = await fetchChargesForClient(client.id);
+    ok(res, { charges });
   } catch (err) {
-    console.error('list billable items error', err);
-    fail(res, 500, 'Unable to load billable items');
+    console.error('list client charges error', err);
+    fail(res, 500, 'Unable to load charges');
   }
 });
 
-app.post('/api/admin/billing/items', requireAdmin, async (req, res) => {
+app.post(['/api/admin/clients/:clientId/charges', '/admin/clients/:clientId/charges'], requireAdmin, async (req, res) => {
   try {
-    const { title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval, active } = req.body || {};
-    const resolvedType = (type || 'ONE_TIME').toUpperCase();
-    if (!['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
-      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
-    }
+    const { clientId } = req.params;
+    const { label, amount, amountCents, currency } = req.body || {};
+    const client = await findClientRecord(clientId);
+    if (!client) return fail(res, 404, 'Client not found');
+
+    const cleanLabel = sanitizeText(label);
+    if (!cleanLabel) return fail(res, 400, 'label is required');
 
     const resolvedAmount = resolveAmountCents({ amount, amountCents });
-    const sanitizedPriceId = sanitizeText(stripePriceId);
-    if (!sanitizedPriceId && (!resolvedAmount || resolvedAmount <= 0)) {
-      return fail(res, 400, 'amount is required when no Stripe price is provided');
+    if (!resolvedAmount || resolvedAmount <= 0) {
+      return fail(res, 400, 'amount must be greater than 0');
     }
 
-    const item = await prisma.billableItem.create({
+    const charge = await prisma.clientCharge.create({
       data: {
-        title: sanitizeText(title) || 'Billable item',
-        description: sanitizeText(description) || null,
+        clientId: client.id,
+        label: cleanLabel,
         amountCents: resolvedAmount,
         currency: normalizeCurrency(currency),
-        type: resolvedType,
-        stripePriceId: sanitizedPriceId || null,
-        recurringInterval: resolvedType === 'RECURRING' ? (recurringInterval || 'month') : null,
-        active: active !== false,
+        status: 'pending',
+        stripeSessionId: null,
       },
     });
 
-    ok(res, { item });
+    ok(res, { charge });
   } catch (err) {
-    console.error('create billable item error', err);
-    fail(res, 500, 'Unable to create billable item');
+    console.error('create client charge error', err);
+    fail(res, 500, 'Unable to create charge');
   }
 });
 
-app.put('/api/admin/billing/items/:id', requireAdmin, async (req, res) => {
+app.patch(['/api/admin/charges/:chargeId/status', '/admin/charges/:chargeId/status'], requireAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-    const { title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval, active } = req.body || {};
-    const existing = await prisma.billableItem.findUnique({ where: { id } });
-    if (!existing) return fail(res, 404, 'Item not found');
-
-    const resolvedType = type ? type.toUpperCase() : existing.type;
-    if (resolvedType && !['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
-      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
+    const { chargeId } = req.params;
+    const { status } = req.body || {};
+    const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : '';
+    if (!['pending', 'paid'].includes(normalizedStatus)) {
+      return fail(res, 400, 'status must be pending or paid');
     }
 
-    const resolvedAmount = resolveAmountCents({ amount, amountCents });
-    const sanitizedPriceId = stripePriceId !== undefined ? sanitizeText(stripePriceId) : existing.stripePriceId;
-    if (!sanitizedPriceId && resolvedAmount !== null && resolvedAmount <= 0) {
-      return fail(res, 400, 'amount must be positive when no Stripe price is provided');
-    }
-
-    const item = await prisma.billableItem.update({
-      where: { id },
-      data: {
-        title: title !== undefined ? sanitizeText(title) : existing.title,
-        description: description !== undefined ? (sanitizeText(description) || null) : existing.description,
-        amountCents: resolvedAmount !== null && resolvedAmount !== undefined ? resolvedAmount : existing.amountCents,
-        currency: currency ? normalizeCurrency(currency) : existing.currency,
-        type: resolvedType || existing.type,
-        stripePriceId: sanitizedPriceId || null,
-        recurringInterval: resolvedType === 'RECURRING'
-          ? (recurringInterval || existing.recurringInterval || 'month')
-          : null,
-        active: typeof active === 'boolean' ? active : existing.active,
-      },
+    const updated = await prisma.clientCharge.update({
+      where: { id: chargeId },
+      data: { status: normalizedStatus },
     });
 
-    ok(res, { item });
+    ok(res, { charge: updated });
   } catch (err) {
-    console.error('update billable item error', err);
-    fail(res, 500, 'Unable to update billable item');
-  }
-});
-
-app.delete('/api/admin/billing/items/:id', requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const assigned = await prisma.assignedItem.findMany({
-      where: { billableItemId: id },
-      select: { id: true },
-    });
-    const assignedIds = assigned.map((a) => a.id);
-    if (assignedIds.length) {
-      await prisma.paymentRecord.deleteMany({ where: { assignedItemId: { in: assignedIds } } });
+    if (isRecordNotFoundError(err)) {
+      return fail(res, 404, 'Charge not found');
     }
-    await prisma.assignedItem.deleteMany({ where: { billableItemId: id } });
-    await prisma.billableItem.delete({ where: { id } });
-    ok(res, { deleted: true });
-  } catch (err) {
-    console.error('delete billable item error', err);
-    fail(res, 500, 'Unable to delete billable item');
-  }
-});
-
-// ADMIN: ASSIGN BILLABLE ITEMS TO CLIENTS
-app.get('/api/admin/billing/assigned', requireAdmin, async (req, res) => {
-  try {
-    const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
-    const status = typeof req.query.status === 'string' ? req.query.status.toUpperCase() : null;
-    const validStatuses = ['PENDING', 'PAID', 'CANCELED'];
-    const where = {};
-    if (userId) where.userId = userId;
-    if (status && validStatuses.includes(status)) where.status = status;
-
-    const items = await prisma.assignedItem.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        billableItem: true,
-        user: { select: { id: true, email: true, name: true } },
-        payments: {
-          orderBy: { createdAt: 'desc' },
-          take: 3,
-        },
-      },
-    });
-    ok(res, { items });
-  } catch (err) {
-    console.error('list assigned items error', err);
-    fail(res, 500, 'Unable to load assigned items');
-  }
-});
-
-app.post('/api/admin/billing/assign', requireAdmin, async (req, res) => {
-  try {
-    const { userId, billableItemId, title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval } = req.body || {};
-    if (!userId) return fail(res, 400, 'userId required');
-
-    const client = await prisma.user.findUnique({ where: { id: userId } });
-    if (!client || client.role !== 'CLIENT') return fail(res, 404, 'Client not found');
-
-    let billableItem = null;
-    if (billableItemId) {
-      billableItem = await prisma.billableItem.findUnique({ where: { id: billableItemId } });
-      if (!billableItem) return fail(res, 404, 'Template billable item not found');
-    }
-
-    const resolvedType = (type || billableItem?.type || 'ONE_TIME').toUpperCase();
-    if (!['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
-      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
-    }
-
-    const resolvedAmount = resolveAmountCents({ amount, amountCents }) ?? billableItem?.amountCents ?? null;
-    const sanitizedPriceId = sanitizeText(stripePriceId || billableItem?.stripePriceId);
-    if (!sanitizedPriceId && (!resolvedAmount || resolvedAmount <= 0)) {
-      return fail(res, 400, 'amount is required when no Stripe price is provided');
-    }
-
-    const item = await prisma.assignedItem.create({
-      data: {
-        userId,
-        billableItemId: billableItem?.id || null,
-        title: sanitizeText(title || billableItem?.title || 'Billable item'),
-        description: sanitizeText(description || billableItem?.description) || null,
-        amountCents: resolvedAmount || billableItem?.amountCents || 0,
-        currency: normalizeCurrency(currency || billableItem?.currency || 'usd'),
-        type: resolvedType,
-        stripePriceId: sanitizedPriceId || null,
-        recurringInterval: resolvedType === 'RECURRING'
-          ? (recurringInterval || billableItem?.recurringInterval || 'month')
-          : null,
-        status: 'PENDING',
-      },
-      include: {
-        billableItem: true,
-        user: { select: { id: true, email: true, name: true } },
-      },
-    });
-
-    ok(res, { item });
-  } catch (err) {
-    console.error('assign billable item error', err);
-    fail(res, 500, 'Unable to assign item');
-  }
-});
-
-app.put('/api/admin/billing/assigned/:id', requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval, status } = req.body || {};
-    const assignment = await prisma.assignedItem.findUnique({ where: { id } });
-    if (!assignment) return fail(res, 404, 'Assigned item not found');
-
-    const resolvedType = type ? type.toUpperCase() : assignment.type;
-    if (resolvedType && !['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
-      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
-    }
-
-    const resolvedAmount = resolveAmountCents({ amount, amountCents });
-    const sanitizedPriceId = stripePriceId !== undefined ? sanitizeText(stripePriceId) : assignment.stripePriceId;
-    if (!sanitizedPriceId && resolvedAmount !== null && resolvedAmount !== undefined && resolvedAmount <= 0) {
-      return fail(res, 400, 'amount must be positive when no Stripe price is provided');
-    }
-
-    const nextStatus = status ? status.toUpperCase() : assignment.status;
-    const validStatuses = ['PENDING', 'PAID', 'CANCELED'];
-    if (nextStatus && !validStatuses.includes(nextStatus)) {
-      return fail(res, 400, 'Invalid status');
-    }
-
-    const updated = await prisma.assignedItem.update({
-      where: { id },
-      data: {
-        title: title !== undefined ? sanitizeText(title) : assignment.title,
-        description: description !== undefined ? (sanitizeText(description) || null) : assignment.description,
-        amountCents: resolvedAmount !== null && resolvedAmount !== undefined ? resolvedAmount : assignment.amountCents,
-        currency: currency ? normalizeCurrency(currency) : assignment.currency,
-        type: resolvedType || assignment.type,
-        stripePriceId: sanitizedPriceId || null,
-        recurringInterval: (resolvedType || assignment.type) === 'RECURRING'
-          ? (recurringInterval || assignment.recurringInterval || 'month')
-          : null,
-        status: nextStatus || assignment.status,
-        paidAt: nextStatus === 'PAID' ? (assignment.paidAt || new Date()) : nextStatus === 'PENDING' ? null : assignment.paidAt,
-      },
-    });
-
-    ok(res, { item: updated });
-  } catch (err) {
-    console.error('update assigned item error', err);
-    fail(res, 500, 'Unable to update assigned item');
-  }
-});
-
-app.delete('/api/admin/billing/assigned/:id', requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    await prisma.paymentRecord.deleteMany({ where: { assignedItemId: id } });
-    await prisma.assignedItem.delete({ where: { id } });
-    ok(res, { deleted: true });
-  } catch (err) {
-    console.error('delete assigned item error', err);
-    fail(res, 500, 'Unable to delete assigned item');
+    console.error('update client charge error', err);
+    fail(res, 500, 'Unable to update charge');
   }
 });
 

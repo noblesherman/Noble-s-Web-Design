@@ -26,8 +26,8 @@ import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
-import Checkout from './pages/Checkout';
-import CheckoutReturn from './pages/CheckoutReturn';
+import PortalBilling from './pages/PortalBilling';
+import PortalBillingComplete from './pages/PortalBillingComplete';
 
 // Vercel analytics imports
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -77,8 +77,10 @@ const App = () => {
             <Route path="/support/:ticketId" element={<SupportTicket />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route path="/checkout/return" element={<CheckoutReturn />} />
+            <Route path="/portal/billing" element={<PortalBilling />} />
+            <Route path="/portal/billing/complete" element={<PortalBillingComplete />} />
+            <Route path="/client/billing" element={<PortalBilling />} />
+            <Route path="/client/billing/complete" element={<PortalBillingComplete />} />
 
             {/* REAL ADMIN ROUTE FOR GITHUB OAUTH */}
             <Route path="/admin" element={<Admin />} />

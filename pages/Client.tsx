@@ -33,9 +33,6 @@ export const Client: React.FC = () => {
   const [contractsLoading, setContractsLoading] = useState(false);
   const [contractsError, setContractsError] = useState<string | null>(null);
   const [contractsOpen, setContractsOpen] = useState(false);
-  const [billingItems, setBillingItems] = useState<any[]>([]);
-  const [billingLoading, setBillingLoading] = useState(false);
-  const [billingError, setBillingError] = useState<string | null>(null);
   const [tickets, setTickets] = useState<any[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
@@ -140,24 +137,6 @@ export const Client: React.FC = () => {
     }
   };
 
-  const fetchBillingItems = async (token: string) => {
-    setBillingLoading(true);
-    setBillingError(null);
-    try {
-      const res = await fetch(`${API_BASE}/client/billing/items`, {
-        credentials: "include",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Unable to load billable items");
-      setBillingItems(data.items || data.data?.items || []);
-    } catch (err: any) {
-      setBillingError(err?.message || "Unable to load billable items");
-    } finally {
-      setBillingLoading(false);
-    }
-  };
-
   const fetchContracts = async (token: string) => {
     setContractsLoading(true);
     setContractsError(null);
@@ -233,7 +212,6 @@ export const Client: React.FC = () => {
         fetchProject(token),
         fetchFiles(token),
         fetchContracts(token),
-        fetchBillingItems(token),
         fetchTickets(token),
         fetchTeam(token),
       ]);
@@ -430,17 +408,12 @@ export const Client: React.FC = () => {
     if (token) fetchContracts(token);
   };
 
-  const refreshBilling = () => {
-    const token = localStorage.getItem("client_token");
-    if (token) fetchBillingItems(token);
-  };
-
-  const goToCheckout = (assignedItemId: string) => {
+  const goToBilling = () => {
     if (!localStorage.getItem("client_token")) {
       navigate("/client");
       return;
     }
-    navigate(`/checkout?itemId=${assignedItemId}`);
+    navigate("/portal/billing");
   };
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -902,75 +875,33 @@ export const Client: React.FC = () => {
             <div>
               <p className={labelClass}>Billing</p>
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <CreditCard size={20} className="text-secondary" /> Assigned items
+                <CreditCard size={20} className="text-secondary" /> Invoices & payments
               </h3>
-              <p className="text-muted text-sm">Pay only the items your admin assigned to you.</p>
+              <p className="text-muted text-sm">Review charges and pay securely without leaving the portal.</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={refreshBilling} className="text-xs px-3 py-2">
-                <RefreshCw size={14} className="mr-2" /> Refresh
+              <Button variant="secondary" onClick={goToBilling} className="text-xs px-3 py-2">
+                Open billing
               </Button>
-              <Button variant="secondary" onClick={() => navigate("/support")} className="text-xs px-3 py-2">
+              <Button variant="outline" onClick={() => navigate("/support")} className="text-xs px-3 py-2">
                 Need help?
               </Button>
             </div>
           </div>
-
-          {billingError && (
-            <div className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-              {billingError}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-muted">
+            <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+              <p className="text-white font-semibold text-base">Embedded checkout</p>
+              <p className="text-xs text-muted mt-1">Stripe’s Payment Element sits inside the portal so you never leave.</p>
             </div>
-          )}
-
-          {billingLoading ? (
-            <div className="mt-6 flex items-center gap-2 text-sm text-muted">
-              <Loader2 className="animate-spin" size={14} /> Loading assigned items...
+            <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+              <p className="text-white font-semibold text-base">Clear status</p>
+              <p className="text-xs text-muted mt-1">Charges stay pending until paid, then flip to a recorded payment.</p>
             </div>
-          ) : billingItems.length ? (
-            <div className="mt-6 space-y-3">
-              {billingItems.map((item: any) => {
-                const status = (item.status || "").toUpperCase();
-                const statusClass =
-                  status === "PAID"
-                    ? "border-green-400/40 text-green-200"
-                    : status === "CANCELED"
-                      ? "border-red-400/40 text-red-200"
-                      : "border-amber-400/40 text-amber-200";
-                return (
-                  <div key={item.id} className="p-4 border border-white/10 rounded-lg bg-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-white font-semibold">{item.title}</p>
-                      <p className="text-xs text-muted">{item.description || "No description provided."}</p>
-                      <p className="text-xs text-muted">
-                        {item.type === "RECURRING" ? "Recurring" : "One-time"}
-                        {item.recurringInterval && item.type === "RECURRING" ? ` • ${item.recurringInterval}` : ""}
-                      </p>
-                      {item.payments?.length ? (
-                        <p className="text-[11px] text-muted">
-                          Last payment: {item.payments[0].status || "pending"}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="text-right space-y-2">
-                      <p className="text-lg font-bold text-white">
-                        {formatMoney(item.amountCents, item.currency)}
-                      </p>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] border ${statusClass}`}>
-                        {status || "PENDING"}
-                      </span>
-                      {status !== "PAID" && status !== "CANCELED" && (
-                        <Button onClick={() => goToCheckout(item.id)} className="w-full md:w-auto">
-                          Pay now
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+              <p className="text-white font-semibold text-base">One hub</p>
+              <p className="text-xs text-muted mt-1">Invoices, support, and projects all live in your portal.</p>
             </div>
-          ) : (
-            <div className="mt-6 text-sm text-muted">No billable items assigned yet.</div>
-          )}
+          </div>
         </motion.div>
 
         {(TEAM_ENABLED || TICKETS_ENABLED) && (

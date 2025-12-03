@@ -19,7 +19,7 @@ A full-stack dashboard and client portal for a boutique web studio. Admins manag
 - Dashboard: KPI cards and quick client invite issuance (name + email, PIN lifecycle).
 - Leads: Filter by query/status, reply via mailto, mark replied, delete.
 - Clients: Invite/resend PIN, status chips, upload files (optional project link), view client team members.
-- Billing: CRUD billable templates, assign items to clients (one-time or recurring), mark payments, and audit assigned items.
+- Billing: Create client-specific charges, view charge history, and mark payments as paid when needed.
 - Projects: Create/assign projects, edit metadata (status, timelines, URLs, budget), add activities and documents.
 - Contracts: Create contract records, accept DocuSeal embeds/template IDs, assign to clients, track signed/pending, delete with assignments.
 - Uptime: Create/update/delete monitors, view logs, status messaging, alert thresholds, test alerts.
@@ -29,7 +29,7 @@ A full-stack dashboard and client portal for a boutique web studio. Admins manag
 ### Client Portal
 - Login: Returning (email/password) and first-time (email + PIN -> password).
 - Dashboard: Project status, recent activity, grouped files, quick ticket submission, team listing, contract summary.
-- Billing: View assigned billable items and pay through Stripe Checkout (custom UI mode + Payment Element) with automatic tax.
+- Billing: See assigned charges, launch embedded Stripe Checkout (ui_mode custom + Payment Element) inside the portal, and view paid history.
 - Contracts: View/sign via DocuSeal iframe; status and PDFs where available.
 - Files: Download grouped by project.
 - Tickets: Create and view statuses/admin notes.
@@ -37,15 +37,15 @@ A full-stack dashboard and client portal for a boutique web studio. Admins manag
 
 ## API (selected)
 - Admin: `/api/admin/me`, `/api/admin/clients`, `/api/admin/clients/issue-pin`, `/api/admin/projects`, `/api/admin/contracts`, `/api/admin/leads`, `/api/admin/tickets`, `/api/admin/uptime`, `/api/admin/settings/alerts`, uploads at `/api/admin/files/upload`.
-- Admin billing: `/api/admin/billing/items` (CRUD billable templates), `/api/admin/billing/assign`, `/api/admin/billing/assigned`.
-- Client: `/api/client/auth/start|complete`, `/api/client/login`, `/api/client/me`, `/api/client/projects`, `/api/client/files`, `/api/client/contracts`, `/api/client/tickets`, `/api/client/team`, `/api/client/billing/items`.
-- Payments: `/api/payments/create-session` (ui_mode custom Checkout Session), `/api/payments/session-status`, Stripe webhook at `/api/payments/webhook`.
+- Admin billing: `/api/admin/clients/:clientId/charges` (list/create), `/api/admin/charges/:chargeId/status` (mark paid/pending).
+- Client: `/api/client/auth/start|complete`, `/api/client/login`, `/api/client/me`, `/api/client/projects`, `/api/client/files`, `/api/client/contracts`, `/api/client/tickets`, `/api/client/team`, `/api/portal/me/charges`, `/api/portal/charges/:chargeId/create-checkout-session`, `/api/portal/checkout-session-status`.
+- Payments: Checkout Sessions use `ui_mode: custom` with `/api/payments/webhook` for Stripe events.
 
 ## Data Models (Prisma)
 - Core: User (roles ADMIN/CLIENT), Client.
 - Projects: Project, ProjectAssignment, ProjectActivity, ProjectDocument.
 - Contracts: Contract, ContractAssignment, ContractSignature.
-- Billing: BillableItem (templates), AssignedItem (per-client), PaymentRecord (Stripe session/invoice/payment metadata).
+- Billing: ClientCharge (per-client charge record for embedded Checkout).
 - Leads, Tickets, TeamMember, ClientFile (FileAttachment), UptimeTarget, UptimeLog, SiteSettings.
 
 ## Environment
@@ -79,12 +79,12 @@ A full-stack dashboard and client portal for a boutique web studio. Admins manag
 2) Run migrations: `npx prisma migrate dev --name init`.
 3) `npm run dev` and open the frontend (`/admin` for GitHub login, `/client` for portal).
 4) Issue a client invite in Admin → use PIN to activate in Client portal.
-5) Configure Stripe keys + webhook endpoint, assign a billable item to a client, then pay via `/checkout`.
+5) Configure Stripe keys + webhook endpoint, create a client charge from Admin, then pay via `/portal/billing`.
 
 ## Notes
 - Keep `credentials: "include"` for admin fetches (session cookies).
 - Client JWT lives in `localStorage` as `client_token`.
-- Checkout Sessions use `ui_mode: custom` with Payment Element. Automatic tax is enabled; return URL is `/checkout/return`.
+- Checkout Sessions use `ui_mode: custom` with Payment Element and return to `/portal/billing/complete`.
 - DocuSeal embeds must be valid iframe src/share URLs or template IDs.
 - Uptime requires SMTP if you want alert emails; otherwise logs still record status.
 

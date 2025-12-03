@@ -50,6 +50,7 @@ model Client {
   updatedAt DateTime   @updatedAt
 
   user          User             @relation(fields: [userId], references: [id])
+  charges       ClientCharge[]
 }
 
 model Project {
@@ -348,4 +349,20 @@ enum PaymentStatus {
   SUCCEEDED
   REQUIRES_PAYMENT
   FAILED
+}
+
+model ClientCharge {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  label           String
+  amountCents     Int
+  currency        String
+  status          String   @default("pending")
+  stripeSessionId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([stripeSessionId])
 }

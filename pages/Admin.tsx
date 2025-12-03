@@ -41,6 +41,13 @@ export const Admin: React.FC = () => {
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [manualName, setManualName] = useState("");
+  const [manualEmail, setManualEmail] = useState("");
+  const [manualCompany, setManualCompany] = useState("");
+  const [manualPassword, setManualPassword] = useState("");
+  const [manualStatus, setManualStatus] = useState<string | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualLoading, setManualLoading] = useState(false);
   const [leads, setLeads] = useState<any[]>([]);
   const [leadActionStatus, setLeadActionStatus] = useState<string | null>(null);
   const [leadLoading, setLeadLoading] = useState(false);
@@ -275,6 +282,40 @@ export const Admin: React.FC = () => {
       setInviteError("Unable to create invite");
     } finally {
       setInviteLoading(false);
+    }
+  };
+
+  const createClientManually = async () => {
+    setManualStatus(null);
+    setManualError(null);
+    setManualLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/clients`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: manualName || undefined,
+          email: manualEmail || undefined,
+          company: manualCompany || undefined,
+          password: manualPassword || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.client) {
+        setManualStatus("Client added.");
+        setManualName("");
+        setManualEmail("");
+        setManualCompany("");
+        setManualPassword("");
+        refreshClients();
+      } else {
+        setManualError(data.error || "Unable to add client");
+      }
+    } catch (err) {
+      setManualError("Unable to add client");
+    } finally {
+      setManualLoading(false);
     }
   };
 
@@ -1142,6 +1183,58 @@ export const Admin: React.FC = () => {
                   {invitePin && (
                     <div className="mt-3 p-3 rounded border border-primary/30 bg-primary/10 text-white font-mono text-sm">
                       PIN: {invitePin}
+                    </div>
+                  )}
+                </div>
+
+                <div className={`${panelClass} p-6 md:p-8`}>
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                    <div>
+                      <p className={labelClass}>Manual add</p>
+                      <h3 className="text-2xl font-bold text-white">Add client record</h3>
+                      <p className="text-muted text-sm">Create a client without sending an invite. You can share a password directly or issue a PIN later.</p>
+                    </div>
+                    <Button onClick={createClientManually} disabled={manualLoading || !manualEmail}>
+                      {manualLoading ? "Saving..." : "Add client"}
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input
+                      className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white focus:border-primary/60 transition-colors"
+                      placeholder="Client name"
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                    />
+                    <input
+                      className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white focus:border-primary/60 transition-colors"
+                      placeholder="Client email"
+                      value={manualEmail}
+                      onChange={(e) => setManualEmail(e.target.value)}
+                    />
+                    <input
+                      className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white focus:border-primary/60 transition-colors"
+                      placeholder="Company (optional)"
+                      value={manualCompany}
+                      onChange={(e) => setManualCompany(e.target.value)}
+                    />
+                    <input
+                      className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white focus:border-primary/60 transition-colors"
+                      placeholder="Set password (optional)"
+                      type="password"
+                      value={manualPassword}
+                      onChange={(e) => setManualPassword(e.target.value)}
+                    />
+                  </div>
+
+                  {manualStatus && (
+                    <div className="mt-4 text-sm text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                      {manualStatus}
+                    </div>
+                  )}
+                  {manualError && (
+                    <div className="mt-2 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                      {manualError}
                     </div>
                   )}
                 </div>

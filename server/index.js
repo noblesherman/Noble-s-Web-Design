@@ -1064,6 +1064,54 @@ app.post('/api/admin/clients/issue-pin', requireAdmin, async (req, res) => {
   }
 });
 
+// ADMIN: MANUALLY CREATE CLIENT
+app.post('/api/admin/clients', requireAdmin, async (req, res) => {
+  try {
+    const { email, name, company, password } = req.body || {};
+    if (!email) return fail(res, 400, 'email required');
+
+    let passwordHash = null;
+    if (password) {
+      passwordHash = await bcrypt.hash(password, 12);
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    const user = existing
+      ? await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            name: name || existing.name,
+            role: 'CLIENT',
+            passwordHash: password ? passwordHash : existing.passwordHash,
+            tempPinHash: password ? null : existing.tempPinHash,
+            tempPinExpiresAt: password ? null : existing.tempPinExpiresAt,
+          },
+        })
+      : await prisma.user.create({
+          data: {
+            email,
+            name: name || email,
+            role: 'CLIENT',
+            passwordHash,
+          },
+        });
+
+    await ensureClientRecord({ userId: user.id, name, company });
+
+    const response = {
+      ...buildClientUser(user),
+      hasPassword: !!user.passwordHash,
+      hasActivePin:
+        !!(user.tempPinHash && user.tempPinExpiresAt && user.tempPinExpiresAt.getTime() > Date.now()),
+    };
+
+    ok(res, { client: response });
+  } catch (err) {
+    console.error('create client error', err);
+    fail(res, 500, 'Unable to create client');
+  }
+});
+
 // CLIENT JWT AUTH GUARD
 const requireClient = (req, res, next) => {
   const authHeader = req.headers.authorization || '';

@@ -15,6 +15,7 @@ import nodemailer from 'nodemailer';
 import { randomUUID } from 'crypto';
 import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
+import Stripe from 'stripe';
 import { generateContractPdf, generateContractPdfFromTemplate } from './contractPdf.js';
 import { startUptimeMonitor, calculateUptimePercentage } from './uptimeService.js';
 
@@ -34,6 +35,9 @@ const PIN_EXP_MINUTES = Number(process.env.PIN_EXP_MINUTES || 30);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'client-documents';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const UPTIME_TIMEOUT_MS = Number(process.env.UPTIME_TIMEOUT_MS || 10000);
 const UPTIME_POLL_MS = Number(process.env.UPTIME_POLL_MS || 30000);
 const VALID_CHECK_INTERVALS = [1, 5, 15, 60];
@@ -51,7 +55,7 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const allowedOrigins = ['https://noblesweb.design'].map(normalizeOrigin).filter(Boolean);
+const allowedOrigins = [FRONTEND_URL, 'https://noblesweb.design'].map(normalizeOrigin).filter(Boolean);
 const COOKIE_DOMAIN = isProd ? '.noblesweb.design' : undefined;
 const ADMIN_COOKIE_NAME = 'admin_token';
 const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -61,6 +65,14 @@ if (missingEnv.length) {
   console.error(`Missing required environment variables: ${missingEnv.join(', ')}`);
   process.exit(1);
 }
+
+if (!STRIPE_SECRET_KEY) {
+  console.warn('STRIPE_SECRET_KEY is not configured. Stripe payments are disabled until it is set.');
+}
+
+const stripe = STRIPE_SECRET_KEY
+  ? new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2024-12-18' })
+  : null;
 
 const prisma = new PrismaClient({
   datasources: {
@@ -86,6 +98,32 @@ const parseCookies = (req) => {
     acc[key] = decodeURIComponent(rest.join('=') || '');
     return acc;
   }, {});
+};
+
+const sanitizeText = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'string') return String(value || '').trim();
+  return value.trim();
+};
+
+const toCents = (amount) => {
+  if (amount === null || amount === undefined || amount === '') return null;
+  const parsed = Number(amount);
+  if (Number.isNaN(parsed)) return null;
+  return Math.round(parsed * 100);
+};
+
+const normalizeCurrency = (value) => {
+  if (!value) return 'usd';
+  return String(value).trim().toLowerCase() || 'usd';
+};
+
+const resolveAmountCents = ({ amount, amountCents }) => {
+  if (amountCents !== null && amountCents !== undefined && amountCents !== '') {
+    const parsed = Number(amountCents);
+    if (Number.isFinite(parsed)) return Math.round(parsed);
+  }
+  return toCents(amount);
 };
 
 const buildAdminUser = (user) => ({
@@ -251,6 +289,12 @@ const mailer = SMTP_HOST && SMTP_USER && SMTP_PASS
   : null;
 
 const ensureSiteSettings = async () => {
+  // Guard against older Prisma clients that might not have the SiteSettings model
+  if (!prisma?.siteSettings || typeof prisma.siteSettings.upsert !== 'function') {
+    console.warn('Prisma client does not expose siteSettings.upsert; skipping ensureSiteSettings bootstrap.');
+    return null;
+  }
+
   return prisma.siteSettings.upsert({
     where: { id: 'global' },
     update: {},
@@ -673,6 +717,182 @@ const handleClientAuthComplete = async (req, res) => {
   }
 };
 
+const fetchAssignedItemsForUser = async (userId) => {
+  if (!userId) return [];
+  return prisma.assignedItem.findMany({
+    where: { userId },
+    include: {
+      billableItem: true,
+      payments: {
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
+const upsertPaymentRecord = async ({
+  sessionId,
+  clientSecret,
+  paymentIntentId,
+  invoiceId,
+  assignedItemId,
+  userId,
+  amountCents,
+  currency,
+  mode,
+  status,
+}) => {
+  const normalizedCurrency = currency ? normalizeCurrency(currency) : undefined;
+  const search = [];
+  if (sessionId) search.push({ stripeSessionId: sessionId });
+  if (paymentIntentId) search.push({ paymentIntentId });
+  if (invoiceId) search.push({ invoiceId });
+
+  const existing = search.length
+    ? await prisma.paymentRecord.findFirst({ where: { OR: search } })
+    : null;
+
+  let resolvedUserId = userId || existing?.userId;
+  if (!resolvedUserId && assignedItemId) {
+    const assignment = await prisma.assignedItem.findUnique({
+      where: { id: assignedItemId },
+      select: { userId: true },
+    });
+    resolvedUserId = assignment?.userId || resolvedUserId;
+  }
+
+  const data = {
+    clientSecret: clientSecret || undefined,
+    paymentIntentId: paymentIntentId || existing?.paymentIntentId || undefined,
+    invoiceId: invoiceId || existing?.invoiceId || undefined,
+    assignedItemId: assignedItemId || existing?.assignedItemId || undefined,
+    userId: resolvedUserId,
+    amountCents: amountCents ?? existing?.amountCents ?? undefined,
+    currency: normalizedCurrency || existing?.currency || undefined,
+    mode: mode || existing?.mode || undefined,
+    status: status || existing?.status || 'PENDING',
+  };
+
+  if (!data.userId) {
+    throw new Error('userId is required for payment records');
+  }
+
+  if (existing) {
+    return prisma.paymentRecord.update({
+      where: { id: existing.id },
+      data,
+    });
+  }
+
+  return prisma.paymentRecord.create({
+    data: {
+      stripeSessionId: sessionId || paymentIntentId || invoiceId || randomUUID(),
+      ...data,
+    },
+  });
+};
+
+const markAssignedItemPaid = async ({ assignedItemId }) => {
+  if (!assignedItemId) return null;
+  try {
+    return await prisma.assignedItem.update({
+      where: { id: assignedItemId },
+      data: { status: 'PAID', paidAt: new Date() },
+    });
+  } catch (err) {
+    if (isRecordNotFoundError(err)) return null;
+    throw err;
+  }
+};
+
+const createSessionForAssignedItem = async ({ userId, assignedItemId }) => {
+  if (!stripe) throw new Error('Stripe is not configured');
+  if (!userId || !assignedItemId) throw new Error('userId and assignedItemId are required');
+
+  const assignment = await prisma.assignedItem.findFirst({
+    where: { id: assignedItemId, userId },
+    include: {
+      billableItem: true,
+      user: { select: { id: true, email: true, name: true } },
+    },
+  });
+
+  if (!assignment) throw new Error('Item not found for this user');
+  if (assignment.status === 'PAID') throw new Error('This item is already paid');
+
+  const currency = normalizeCurrency(assignment.currency || assignment.billableItem?.currency || 'usd');
+  const amountCents = assignment.amountCents ?? assignment.billableItem?.amountCents ?? null;
+  const interval = assignment.recurringInterval || assignment.billableItem?.recurringInterval || 'month';
+
+  if (!assignment.stripePriceId && (!amountCents || amountCents <= 0)) {
+    throw new Error('Amount is required for this item');
+  }
+
+  const metadata = {
+    assignedItemId: assignment.id,
+    userId: assignment.userId,
+  };
+
+  const mode = assignment.type === 'RECURRING' ? 'subscription' : 'payment';
+  const lineItem = assignment.stripePriceId
+    ? { price: assignment.stripePriceId, quantity: 1 }
+    : {
+        price_data: {
+          currency,
+          product_data: {
+            name: assignment.title,
+            description: assignment.description ? assignment.description.slice(0, 500) : undefined,
+          },
+          unit_amount: amountCents,
+          ...(mode === 'subscription' ? { recurring: { interval } } : {}),
+        },
+        quantity: 1,
+      };
+
+  const baseReturnUrl = `${FRONTEND_URL.replace(/\/$/, '')}/checkout/return?session_id={CHECKOUT_SESSION_ID}`;
+
+  const session = await stripe.checkout.sessions.create({
+    ui_mode: 'custom',
+    mode,
+    line_items: [lineItem],
+    automatic_tax: { enabled: true },
+    client_reference_id: assignment.userId,
+    customer_email: assignment.user?.email || undefined,
+    metadata,
+    return_url: baseReturnUrl,
+    payment_intent_data: { metadata },
+    subscription_data: { metadata },
+  });
+
+  if (session.payment_intent && typeof session.payment_intent === 'string') {
+    await stripe.paymentIntents.update(session.payment_intent, {
+      metadata: { ...metadata, sessionId: session.id },
+    }).catch((err) => console.error('payment_intent metadata update failed', err?.message || err));
+  }
+
+  if (session.subscription && typeof session.subscription === 'string') {
+    await stripe.subscriptions.update(session.subscription, {
+      metadata: { ...metadata, sessionId: session.id },
+    }).catch((err) => console.error('subscription metadata update failed', err?.message || err));
+  }
+
+  await upsertPaymentRecord({
+    sessionId: session.id,
+    clientSecret: session.client_secret || undefined,
+    paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : undefined,
+    assignedItemId: assignment.id,
+    userId: assignment.userId,
+    amountCents,
+    currency,
+    mode: session.mode || mode,
+    status: 'PENDING',
+  });
+
+  return { session, assignment };
+};
+
 // BASIC MIDDLEWARE
 const corsOptions = {
   origin: (origin, callback) => {
@@ -714,7 +934,14 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-app.use(bodyParser.json({ limit: '20mb' }));
+app.use(bodyParser.json({
+  limit: '20mb',
+  verify: (req, _res, buf) => {
+    if (req.originalUrl === '/api/payments/webhook') {
+      req.rawBody = buf;
+    }
+  },
+}));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
 // Allow both /api/... and unprefixed paths like /admin/login by rewriting when needed.
@@ -1306,6 +1533,218 @@ app.post('/api/client/contracts/:assignmentId/sign', requireClient, async (req, 
   }
 });
 
+// CLIENT: BILLABLE ITEMS + PAYMENTS
+app.get('/api/client/billing/items', requireClient, async (req, res) => {
+  try {
+    const items = await fetchAssignedItemsForUser(req.clientId);
+    ok(res, { items });
+  } catch (err) {
+    console.error('list client billable items error', err);
+    fail(res, 500, 'Unable to load billable items');
+  }
+});
+
+app.post('/api/payments/create-session', requireClient, async (req, res) => {
+  try {
+    const { userId, itemId } = req.body || {};
+    if (!userId || !itemId) return fail(res, 400, 'userId and itemId are required');
+    if (userId !== req.clientId) return fail(res, 403, 'You can only pay for your own items');
+    if (!stripe) return fail(res, 500, 'Stripe is not configured');
+
+    const { session, assignment } = await createSessionForAssignedItem({ userId, assignedItemId: itemId });
+
+    ok(res, {
+      sessionId: session.id,
+      clientSecret: session.client_secret,
+      url: session.url,
+      item: assignment,
+    });
+  } catch (err) {
+    console.error('create checkout session error', err);
+    fail(res, 500, err?.message || 'Unable to create checkout session');
+  }
+});
+
+app.get('/api/payments/session-status', requireClient, async (req, res) => {
+  try {
+    if (!stripe) return fail(res, 500, 'Stripe is not configured');
+    const sessionId = typeof req.query.session_id === 'string' ? req.query.session_id : null;
+    if (!sessionId) return fail(res, 400, 'session_id is required');
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent', 'invoice', 'subscription'],
+    });
+
+    if (!session) return fail(res, 404, 'Session not found');
+    const metadata = session.metadata || {};
+    if (metadata.userId && metadata.userId !== req.clientId) {
+      return fail(res, 403, 'You cannot view this session');
+    }
+
+    const paymentIntent = typeof session.payment_intent === 'object' && session.payment_intent !== null
+      ? session.payment_intent
+      : null;
+    const invoiceId = typeof session.invoice === 'string' ? session.invoice : session.invoice?.id;
+
+    const assignedItemId = metadata.assignedItemId;
+    let assignedItem = null;
+    if (assignedItemId) {
+      assignedItem = await prisma.assignedItem.findFirst({
+        where: { id: assignedItemId, userId: req.clientId },
+        include: {
+          billableItem: true,
+          payments: { orderBy: { createdAt: 'desc' }, take: 5 },
+        },
+      });
+    }
+
+    const paymentStatus = session.payment_status;
+    const status = session.status;
+    const amountCents = session.amount_total ?? assignedItem?.amountCents ?? null;
+    const currency = session.currency || assignedItem?.currency || 'usd';
+
+    if (paymentStatus === 'paid' || status === 'complete') {
+      await markAssignedItemPaid({ assignedItemId });
+      await upsertPaymentRecord({
+        sessionId: session.id,
+        clientSecret: session.client_secret || undefined,
+        paymentIntentId: paymentIntent?.id || undefined,
+        invoiceId,
+        assignedItemId,
+        userId: req.clientId,
+        amountCents,
+        currency,
+        mode: session.mode,
+        status: 'SUCCEEDED',
+      });
+    } else {
+      await upsertPaymentRecord({
+        sessionId: session.id,
+        clientSecret: session.client_secret || undefined,
+        paymentIntentId: paymentIntent?.id || undefined,
+        invoiceId,
+        assignedItemId,
+        userId: req.clientId,
+        amountCents,
+        currency,
+        mode: session.mode,
+        status: paymentStatus === 'unpaid' || paymentStatus === 'requires_payment_method' ? 'REQUIRES_PAYMENT' : 'PENDING',
+      });
+    }
+
+    ok(res, {
+      sessionId: session.id,
+      status,
+      paymentStatus,
+      clientSecret: session.client_secret,
+      amountTotal: amountCents,
+      currency,
+      assignedItem,
+      paymentIntentStatus: paymentIntent?.status,
+    });
+  } catch (err) {
+    console.error('session status error', err);
+    fail(res, 500, err?.message || 'Unable to load session');
+  }
+});
+
+app.post('/api/payments/webhook', async (req, res) => {
+  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+    console.warn('Stripe webhook attempted but not configured');
+    return res.status(400).send('Stripe webhook not configured');
+  }
+
+  const signature = req.headers['stripe-signature'];
+  if (!signature) return res.status(400).send('Missing signature');
+
+  let event;
+  try {
+    const raw = req.rawBody || req.body;
+    event = stripe.webhooks.constructEvent(raw, signature, STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Webhook signature verification failed', err?.message || err);
+    return res.status(400).send(`Webhook Error: ${err?.message || 'Invalid signature'}`);
+  }
+
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded': {
+        const intent = event.data.object;
+        const assignedItemId = intent?.metadata?.assignedItemId;
+        let userId = intent?.metadata?.userId;
+        const sessionId = intent?.metadata?.sessionId;
+
+        if (!userId && assignedItemId) {
+          const assignment = await prisma.assignedItem.findUnique({
+            where: { id: assignedItemId },
+            select: { userId: true },
+          });
+          userId = assignment?.userId;
+        }
+
+        if (assignedItemId) await markAssignedItemPaid({ assignedItemId });
+        await upsertPaymentRecord({
+          sessionId,
+          paymentIntentId: intent.id,
+          assignedItemId,
+          userId,
+          amountCents: intent.amount_received || intent.amount,
+          currency: intent.currency,
+          mode: intent.setup_future_usage ? 'setup' : 'payment',
+          status: 'SUCCEEDED',
+        });
+        break;
+      }
+      case 'invoice.paid': {
+        const invoice = event.data.object;
+        let assignedItemId = invoice?.metadata?.assignedItemId;
+        let userId = invoice?.metadata?.userId;
+        const sessionId = invoice?.metadata?.sessionId;
+        const subscriptionId = invoice?.subscription;
+
+        if ((!assignedItemId || !userId) && subscriptionId) {
+          try {
+            const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+            assignedItemId = assignedItemId || subscription?.metadata?.assignedItemId;
+            userId = userId || subscription?.metadata?.userId;
+          } catch (err) {
+            console.error('subscription lookup failed', err?.message || err);
+          }
+        }
+
+        if (!userId && assignedItemId) {
+          const assignment = await prisma.assignedItem.findUnique({
+            where: { id: assignedItemId },
+            select: { userId: true },
+          });
+          userId = assignment?.userId;
+        }
+
+        if (assignedItemId) await markAssignedItemPaid({ assignedItemId });
+        await upsertPaymentRecord({
+          sessionId,
+          invoiceId: invoice.id,
+          assignedItemId,
+          userId,
+          amountCents: invoice.amount_paid,
+          currency: invoice.currency,
+          mode: 'subscription',
+          status: 'SUCCEEDED',
+        });
+        break;
+      }
+      default:
+        console.log(`Unhandled Stripe event type ${event.type}`);
+        break;
+    }
+  } catch (err) {
+    console.error('webhook handler error', err);
+    return res.status(500).send('Webhook handler failure');
+  }
+
+  res.json({ received: true });
+});
+
 // CLIENT: INVITE TEAM MEMBER
 app.post('/api/client/team/invite', requireClient, async (req, res) => {
   try {
@@ -1537,6 +1976,256 @@ app.get('/api/admin/clients', requireAdmin, async (_req, res) => {
   }));
 
   ok(res, { clients: mapped });
+});
+
+// ADMIN: BILLABLE ITEMS
+app.get('/api/admin/billing/items', requireAdmin, async (_req, res) => {
+  try {
+    const items = await prisma.billableItem.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    ok(res, { items });
+  } catch (err) {
+    console.error('list billable items error', err);
+    fail(res, 500, 'Unable to load billable items');
+  }
+});
+
+app.post('/api/admin/billing/items', requireAdmin, async (req, res) => {
+  try {
+    const { title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval, active } = req.body || {};
+    const resolvedType = (type || 'ONE_TIME').toUpperCase();
+    if (!['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
+      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
+    }
+
+    const resolvedAmount = resolveAmountCents({ amount, amountCents });
+    const sanitizedPriceId = sanitizeText(stripePriceId);
+    if (!sanitizedPriceId && (!resolvedAmount || resolvedAmount <= 0)) {
+      return fail(res, 400, 'amount is required when no Stripe price is provided');
+    }
+
+    const item = await prisma.billableItem.create({
+      data: {
+        title: sanitizeText(title) || 'Billable item',
+        description: sanitizeText(description) || null,
+        amountCents: resolvedAmount,
+        currency: normalizeCurrency(currency),
+        type: resolvedType,
+        stripePriceId: sanitizedPriceId || null,
+        recurringInterval: resolvedType === 'RECURRING' ? (recurringInterval || 'month') : null,
+        active: active !== false,
+      },
+    });
+
+    ok(res, { item });
+  } catch (err) {
+    console.error('create billable item error', err);
+    fail(res, 500, 'Unable to create billable item');
+  }
+});
+
+app.put('/api/admin/billing/items/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval, active } = req.body || {};
+    const existing = await prisma.billableItem.findUnique({ where: { id } });
+    if (!existing) return fail(res, 404, 'Item not found');
+
+    const resolvedType = type ? type.toUpperCase() : existing.type;
+    if (resolvedType && !['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
+      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
+    }
+
+    const resolvedAmount = resolveAmountCents({ amount, amountCents });
+    const sanitizedPriceId = stripePriceId !== undefined ? sanitizeText(stripePriceId) : existing.stripePriceId;
+    if (!sanitizedPriceId && resolvedAmount !== null && resolvedAmount <= 0) {
+      return fail(res, 400, 'amount must be positive when no Stripe price is provided');
+    }
+
+    const item = await prisma.billableItem.update({
+      where: { id },
+      data: {
+        title: title !== undefined ? sanitizeText(title) : existing.title,
+        description: description !== undefined ? (sanitizeText(description) || null) : existing.description,
+        amountCents: resolvedAmount !== null && resolvedAmount !== undefined ? resolvedAmount : existing.amountCents,
+        currency: currency ? normalizeCurrency(currency) : existing.currency,
+        type: resolvedType || existing.type,
+        stripePriceId: sanitizedPriceId || null,
+        recurringInterval: resolvedType === 'RECURRING'
+          ? (recurringInterval || existing.recurringInterval || 'month')
+          : null,
+        active: typeof active === 'boolean' ? active : existing.active,
+      },
+    });
+
+    ok(res, { item });
+  } catch (err) {
+    console.error('update billable item error', err);
+    fail(res, 500, 'Unable to update billable item');
+  }
+});
+
+app.delete('/api/admin/billing/items/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const assigned = await prisma.assignedItem.findMany({
+      where: { billableItemId: id },
+      select: { id: true },
+    });
+    const assignedIds = assigned.map((a) => a.id);
+    if (assignedIds.length) {
+      await prisma.paymentRecord.deleteMany({ where: { assignedItemId: { in: assignedIds } } });
+    }
+    await prisma.assignedItem.deleteMany({ where: { billableItemId: id } });
+    await prisma.billableItem.delete({ where: { id } });
+    ok(res, { deleted: true });
+  } catch (err) {
+    console.error('delete billable item error', err);
+    fail(res, 500, 'Unable to delete billable item');
+  }
+});
+
+// ADMIN: ASSIGN BILLABLE ITEMS TO CLIENTS
+app.get('/api/admin/billing/assigned', requireAdmin, async (req, res) => {
+  try {
+    const userId = typeof req.query.userId === 'string' ? req.query.userId : null;
+    const status = typeof req.query.status === 'string' ? req.query.status.toUpperCase() : null;
+    const validStatuses = ['PENDING', 'PAID', 'CANCELED'];
+    const where = {};
+    if (userId) where.userId = userId;
+    if (status && validStatuses.includes(status)) where.status = status;
+
+    const items = await prisma.assignedItem.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        billableItem: true,
+        user: { select: { id: true, email: true, name: true } },
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+        },
+      },
+    });
+    ok(res, { items });
+  } catch (err) {
+    console.error('list assigned items error', err);
+    fail(res, 500, 'Unable to load assigned items');
+  }
+});
+
+app.post('/api/admin/billing/assign', requireAdmin, async (req, res) => {
+  try {
+    const { userId, billableItemId, title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval } = req.body || {};
+    if (!userId) return fail(res, 400, 'userId required');
+
+    const client = await prisma.user.findUnique({ where: { id: userId } });
+    if (!client || client.role !== 'CLIENT') return fail(res, 404, 'Client not found');
+
+    let billableItem = null;
+    if (billableItemId) {
+      billableItem = await prisma.billableItem.findUnique({ where: { id: billableItemId } });
+      if (!billableItem) return fail(res, 404, 'Template billable item not found');
+    }
+
+    const resolvedType = (type || billableItem?.type || 'ONE_TIME').toUpperCase();
+    if (!['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
+      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
+    }
+
+    const resolvedAmount = resolveAmountCents({ amount, amountCents }) ?? billableItem?.amountCents ?? null;
+    const sanitizedPriceId = sanitizeText(stripePriceId || billableItem?.stripePriceId);
+    if (!sanitizedPriceId && (!resolvedAmount || resolvedAmount <= 0)) {
+      return fail(res, 400, 'amount is required when no Stripe price is provided');
+    }
+
+    const item = await prisma.assignedItem.create({
+      data: {
+        userId,
+        billableItemId: billableItem?.id || null,
+        title: sanitizeText(title || billableItem?.title || 'Billable item'),
+        description: sanitizeText(description || billableItem?.description) || null,
+        amountCents: resolvedAmount || billableItem?.amountCents || 0,
+        currency: normalizeCurrency(currency || billableItem?.currency || 'usd'),
+        type: resolvedType,
+        stripePriceId: sanitizedPriceId || null,
+        recurringInterval: resolvedType === 'RECURRING'
+          ? (recurringInterval || billableItem?.recurringInterval || 'month')
+          : null,
+        status: 'PENDING',
+      },
+      include: {
+        billableItem: true,
+        user: { select: { id: true, email: true, name: true } },
+      },
+    });
+
+    ok(res, { item });
+  } catch (err) {
+    console.error('assign billable item error', err);
+    fail(res, 500, 'Unable to assign item');
+  }
+});
+
+app.put('/api/admin/billing/assigned/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, amount, amountCents, type, stripePriceId, currency, recurringInterval, status } = req.body || {};
+    const assignment = await prisma.assignedItem.findUnique({ where: { id } });
+    if (!assignment) return fail(res, 404, 'Assigned item not found');
+
+    const resolvedType = type ? type.toUpperCase() : assignment.type;
+    if (resolvedType && !['ONE_TIME', 'RECURRING'].includes(resolvedType)) {
+      return fail(res, 400, 'type must be ONE_TIME or RECURRING');
+    }
+
+    const resolvedAmount = resolveAmountCents({ amount, amountCents });
+    const sanitizedPriceId = stripePriceId !== undefined ? sanitizeText(stripePriceId) : assignment.stripePriceId;
+    if (!sanitizedPriceId && resolvedAmount !== null && resolvedAmount !== undefined && resolvedAmount <= 0) {
+      return fail(res, 400, 'amount must be positive when no Stripe price is provided');
+    }
+
+    const nextStatus = status ? status.toUpperCase() : assignment.status;
+    const validStatuses = ['PENDING', 'PAID', 'CANCELED'];
+    if (nextStatus && !validStatuses.includes(nextStatus)) {
+      return fail(res, 400, 'Invalid status');
+    }
+
+    const updated = await prisma.assignedItem.update({
+      where: { id },
+      data: {
+        title: title !== undefined ? sanitizeText(title) : assignment.title,
+        description: description !== undefined ? (sanitizeText(description) || null) : assignment.description,
+        amountCents: resolvedAmount !== null && resolvedAmount !== undefined ? resolvedAmount : assignment.amountCents,
+        currency: currency ? normalizeCurrency(currency) : assignment.currency,
+        type: resolvedType || assignment.type,
+        stripePriceId: sanitizedPriceId || null,
+        recurringInterval: (resolvedType || assignment.type) === 'RECURRING'
+          ? (recurringInterval || assignment.recurringInterval || 'month')
+          : null,
+        status: nextStatus || assignment.status,
+        paidAt: nextStatus === 'PAID' ? (assignment.paidAt || new Date()) : nextStatus === 'PENDING' ? null : assignment.paidAt,
+      },
+    });
+
+    ok(res, { item: updated });
+  } catch (err) {
+    console.error('update assigned item error', err);
+    fail(res, 500, 'Unable to update assigned item');
+  }
+});
+
+app.delete('/api/admin/billing/assigned/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.paymentRecord.deleteMany({ where: { assignedItemId: id } });
+    await prisma.assignedItem.delete({ where: { id } });
+    ok(res, { deleted: true });
+  } catch (err) {
+    console.error('delete assigned item error', err);
+    fail(res, 500, 'Unable to delete assigned item');
+  }
 });
 
 // ADMIN: CONTRACTS LIST

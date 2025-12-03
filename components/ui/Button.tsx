@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 interface ButtonProps {
   children: React.ReactNode;
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
   to?: string;
   onClick?: () => void;
   className?: string;
@@ -15,13 +16,19 @@ interface ButtonProps {
 export const Button: React.FC<ButtonProps> = ({ 
   children, 
   variant = 'primary', 
+  size = 'md',
   to, 
   onClick, 
   className = '',
   type = 'button',
   disabled = false
 }) => {
-  const baseStyles = "relative inline-flex items-center justify-center px-6 py-3 rounded-lg font-heading font-semibold tracking-wide transition-all duration-300 text-sm md:text-base disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden";
+  const baseStyles = "relative inline-flex items-center justify-center rounded-lg font-heading font-semibold tracking-wide transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden";
+  const sizeStyles = {
+    sm: "px-4 py-2 text-xs",
+    md: "px-6 py-3 text-sm md:text-base",
+    lg: "px-7 py-4 text-base md:text-lg"
+  };
   
   const variants = {
     primary: "rainbow-cta text-white hover:scale-[1.02]",
@@ -38,7 +45,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   if (to) {
     return (
-      <Link to={to} className={`${baseStyles} ${variants[variant]} ${className}`}>
+      <Link to={to} className={`${baseStyles} ${sizeStyles[size]} ${variants[variant]} ${className}`}>
         {content}
       </Link>
     );
@@ -50,7 +57,7 @@ export const Button: React.FC<ButtonProps> = ({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`${baseStyles} ${variants[variant]} ${className}`}
+      className={`${baseStyles} ${sizeStyles[size]} ${variants[variant]} ${className}`}
     >
       {content}
     </motion.button>

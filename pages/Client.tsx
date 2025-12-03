@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { ClientContractsList } from "../components/ClientContractsList";
-import { FileText, Clock, ExternalLink, FileSignature, RefreshCw, Users, LifeBuoy, Loader2 } from "lucide-react";
+import { FileText, Clock, ExternalLink, FileSignature, RefreshCw, Users, LifeBuoy, Loader2, CreditCard } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Client: React.FC = () => {
@@ -33,6 +33,9 @@ export const Client: React.FC = () => {
   const [contractsLoading, setContractsLoading] = useState(false);
   const [contractsError, setContractsError] = useState<string | null>(null);
   const [contractsOpen, setContractsOpen] = useState(false);
+  const [billingItems, setBillingItems] = useState<any[]>([]);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const [tickets, setTickets] = useState<any[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
@@ -55,6 +58,15 @@ export const Client: React.FC = () => {
   const panelClass = "rounded-2xl border border-white/10 bg-surface/80 backdrop-blur-xl shadow-[0_16px_60px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-white/20 hover:-translate-y-0.5";
   const labelClass = "text-[11px] uppercase tracking-[0.22em] text-muted font-semibold";
   const fadeIn = { hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0 } };
+  const formatMoney = (cents?: number | null, currency = "usd") => {
+    if (!cents && cents !== 0) return "—";
+    const amount = Math.max(0, cents) / 100;
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+      minimumFractionDigits: 2,
+    }).format(amount);
+  };
 
   // Restore existing session
   useEffect(() => {
@@ -122,6 +134,23 @@ export const Client: React.FC = () => {
       if (data?.files) setFiles(data.files);
     } catch (err) {
       console.error("Unable to load files", err);
+    }
+  };
+
+  const fetchBillingItems = async (token: string) => {
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const res = await fetch(`${API_BASE}/client/billing/items`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to load billable items");
+      setBillingItems(data.items || data.data?.items || []);
+    } catch (err: any) {
+      setBillingError(err?.message || "Unable to load billable items");
+    } finally {
+      setBillingLoading(false);
     }
   };
 
@@ -197,6 +226,7 @@ export const Client: React.FC = () => {
         fetchProject(token),
         fetchFiles(token),
         fetchContracts(token),
+        fetchBillingItems(token),
         fetchTickets(token),
         fetchTeam(token),
       ]);
@@ -386,6 +416,19 @@ export const Client: React.FC = () => {
   const refreshContracts = () => {
     const token = localStorage.getItem("client_token");
     if (token) fetchContracts(token);
+  };
+
+  const refreshBilling = () => {
+    const token = localStorage.getItem("client_token");
+    if (token) fetchBillingItems(token);
+  };
+
+  const goToCheckout = (assignedItemId: string) => {
+    if (!localStorage.getItem("client_token")) {
+      navigate("/client");
+      return;
+    }
+    navigate(`/checkout?itemId=${assignedItemId}`);
   };
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -835,6 +878,88 @@ export const Client: React.FC = () => {
             </div>
           </motion.div>
         </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.35 }}
+          className={`${panelClass} p-8`}
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <p className={labelClass}>Billing</p>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <CreditCard size={20} className="text-secondary" /> Assigned items
+              </h3>
+              <p className="text-muted text-sm">Pay only the items your admin assigned to you.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={refreshBilling} className="text-xs px-3 py-2">
+                <RefreshCw size={14} className="mr-2" /> Refresh
+              </Button>
+              <Button variant="secondary" onClick={() => navigate("/support")} className="text-xs px-3 py-2">
+                Need help?
+              </Button>
+            </div>
+          </div>
+
+          {billingError && (
+            <div className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              {billingError}
+            </div>
+          )}
+
+          {billingLoading ? (
+            <div className="mt-6 flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="animate-spin" size={14} /> Loading assigned items...
+            </div>
+          ) : billingItems.length ? (
+            <div className="mt-6 space-y-3">
+              {billingItems.map((item: any) => {
+                const status = (item.status || "").toUpperCase();
+                const statusClass =
+                  status === "PAID"
+                    ? "border-green-400/40 text-green-200"
+                    : status === "CANCELED"
+                      ? "border-red-400/40 text-red-200"
+                      : "border-amber-400/40 text-amber-200";
+                return (
+                  <div key={item.id} className="p-4 border border-white/10 rounded-lg bg-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-white font-semibold">{item.title}</p>
+                      <p className="text-xs text-muted">{item.description || "No description provided."}</p>
+                      <p className="text-xs text-muted">
+                        {item.type === "RECURRING" ? "Recurring" : "One-time"}
+                        {item.recurringInterval && item.type === "RECURRING" ? ` • ${item.recurringInterval}` : ""}
+                      </p>
+                      {item.payments?.length ? (
+                        <p className="text-[11px] text-muted">
+                          Last payment: {item.payments[0].status || "pending"}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="text-right space-y-2">
+                      <p className="text-lg font-bold text-white">
+                        {formatMoney(item.amountCents, item.currency)}
+                      </p>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] border ${statusClass}`}>
+                        {status || "PENDING"}
+                      </span>
+                      {status !== "PAID" && status !== "CANCELED" && (
+                        <Button onClick={() => goToCheckout(item.id)} className="w-full md:w-auto">
+                          Pay now
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-6 text-sm text-muted">No billable items assigned yet.</div>
+          )}
+        </motion.div>
 
         {(TEAM_ENABLED || TICKETS_ENABLED) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

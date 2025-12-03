@@ -89,6 +89,14 @@ export const Admin: React.FC = () => {
   const [teamViewClientId, setTeamViewClientId] = useState<string>("");
   const [teamViewMembers, setTeamViewMembers] = useState<any[]>([]);
   const [teamViewLoading, setTeamViewLoading] = useState(false);
+  const [billableItems, setBillableItems] = useState<any[]>([]);
+  const [assignedBilling, setAssignedBilling] = useState<any[]>([]);
+  const [billingForm, setBillingForm] = useState({ title: "", description: "", amount: "", type: "ONE_TIME", stripePriceId: "", currency: "usd", recurringInterval: "month" });
+  const [assignmentForm, setAssignmentForm] = useState({ userId: "", billableItemId: "", title: "", description: "", amount: "", type: "ONE_TIME", stripePriceId: "", currency: "usd", recurringInterval: "month" });
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [billingStatus, setBillingStatus] = useState<string | null>(null);
+  const [editingBillableId, setEditingBillableId] = useState<string | null>(null);
 
   const navItems: { id: typeof activeView; label: string; icon: React.ElementType }[] = [
     { id: "dashboard", label: "Overview", icon: LayoutDashboard },
@@ -129,6 +137,7 @@ export const Admin: React.FC = () => {
           refreshUptimeTargets();
           refreshContracts();
           loadAlertSettings();
+          refreshBillingData();
         }
       })
       .catch(() => setLoading(false));
@@ -155,6 +164,9 @@ export const Admin: React.FC = () => {
     }
     if (activeView === "tickets") {
       refreshAdminTickets();
+    }
+    if (activeView === "clients") {
+      refreshBillingData(assignmentForm.userId || undefined);
     }
   }, [activeView, isAuth]);
 
@@ -264,6 +276,32 @@ export const Admin: React.FC = () => {
     } catch (err: any) {
       setProjectStatus(err?.message || "Unable to assign project");
     }
+  };
+
+  const refreshBillableItems = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/billing/items`, { credentials: "include" });
+      const data = await res.json();
+      if (res.ok && data.items) setBillableItems(data.items);
+    } catch {
+      setBillingStatus("Unable to load billable items");
+    }
+  };
+
+  const refreshAssignedBilling = async (userId?: string) => {
+    try {
+      const query = userId ? `?userId=${userId}` : "";
+      const res = await fetch(`${API_BASE}/admin/billing/assigned${query}`, { credentials: "include" });
+      const data = await res.json();
+      if (res.ok && data.items) setAssignedBilling(data.items);
+    } catch {
+      setBillingStatus("Unable to load assigned items");
+    }
+  };
+
+  const refreshBillingData = (userId?: string) => {
+    refreshBillableItems();
+    refreshAssignedBilling(userId);
   };
 
   const refreshProjects = async () => {
@@ -734,6 +772,138 @@ export const Admin: React.FC = () => {
     }
   };
 
+  const handleEditBillable = (item: any) => {
+    setEditingBillableId(item.id);
+    setBillingForm({
+      title: item.title || "",
+      description: item.description || "",
+      amount: item.amountCents ? (item.amountCents / 100).toString() : "",
+      type: item.type || "ONE_TIME",
+      stripePriceId: item.stripePriceId || "",
+      currency: item.currency || "usd",
+      recurringInterval: item.recurringInterval || "month",
+    });
+  };
+
+  const handleSaveBillable = async () => {
+    setBillingSaving(true);
+    setBillingStatus(null);
+    try {
+      const payload = {
+        ...billingForm,
+        amount: billingForm.amount ? Number(billingForm.amount) : undefined,
+      };
+      const method = editingBillableId ? "PUT" : "POST";
+      const url = editingBillableId
+        ? `${API_BASE}/admin/billing/items/${editingBillableId}`
+        : `${API_BASE}/admin/billing/items`;
+      const res = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to save billable item");
+      setBillingStatus(editingBillableId ? "Updated billable item" : "Created billable item");
+      setBillingForm({ title: "", description: "", amount: "", type: "ONE_TIME", stripePriceId: "", currency: "usd", recurringInterval: "month" });
+      setEditingBillableId(null);
+      refreshBillableItems();
+    } catch (err: any) {
+      setBillingStatus(err?.message || "Unable to save billable item");
+    } finally {
+      setBillingSaving(false);
+    }
+  };
+
+  const handleDeleteBillable = async (id: string) => {
+    if (!window.confirm("Delete this billable item?")) return;
+    setBillingSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/billing/items/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to delete billable item");
+      refreshBillingData(assignmentForm.userId);
+      setBillingStatus("Deleted billable item");
+    } catch (err: any) {
+      setBillingStatus(err?.message || "Unable to delete billable item");
+    } finally {
+      setBillingSaving(false);
+    }
+  };
+
+  const handleAssignBillable = async () => {
+    if (!assignmentForm.userId) {
+      setBillingStatus("Select a client to assign this item.");
+      return;
+    }
+    setAssignmentSaving(true);
+    setBillingStatus(null);
+    try {
+      const payload = {
+        ...assignmentForm,
+        amount: assignmentForm.amount ? Number(assignmentForm.amount) : undefined,
+      };
+      const res = await fetch(`${API_BASE}/admin/billing/assign`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to assign item");
+      setBillingStatus("Assigned item");
+      setAssignmentForm({ ...assignmentForm, billableItemId: "", title: "", description: "", amount: "", stripePriceId: "" });
+      refreshAssignedBilling(assignmentForm.userId);
+    } catch (err: any) {
+      setBillingStatus(err?.message || "Unable to assign item");
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
+
+  const handleDeleteAssigned = async (id: string) => {
+    if (!window.confirm("Remove this assigned item?")) return;
+    setAssignmentSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/billing/assigned/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to delete assigned item");
+      refreshAssignedBilling(assignmentForm.userId);
+      setBillingStatus("Removed assignment");
+    } catch (err: any) {
+      setBillingStatus(err?.message || "Unable to remove assignment");
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
+
+  const handleMarkAssignmentPaid = async (id: string) => {
+    setAssignmentSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/billing/assigned/${id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "PAID" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to update item");
+      refreshAssignedBilling(assignmentForm.userId);
+      setBillingStatus("Marked as paid");
+    } catch (err: any) {
+      setBillingStatus(err?.message || "Unable to update item");
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
+
   const getProjectDraft = (project: any) => {
     return projectDrafts[project.id] || {
       statusBadge: project.statusBadge || "",
@@ -1097,6 +1267,277 @@ export const Admin: React.FC = () => {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className={`${panelClass} p-6 md:p-8 space-y-6`}>
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div>
+                      <p className={labelClass}>Billing</p>
+                      <h3 className="text-2xl font-bold text-white">Billable items</h3>
+                      <p className="text-muted text-sm">Create templates and assign them to clients with dynamic pricing.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={() => refreshBillingData(assignmentForm.userId || undefined)} className="text-sm">
+                        <RefreshCw size={14} className="mr-2" /> Refresh
+                      </Button>
+                      {billingStatus && <span className="text-xs text-muted">{billingStatus}</span>}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted">Create or edit a template</p>
+                      <input
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        placeholder="Title"
+                        value={billingForm.title}
+                        onChange={(e) => setBillingForm({ ...billingForm, title: e.target.value })}
+                      />
+                      <textarea
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white h-24"
+                        placeholder="Description"
+                        value={billingForm.description}
+                        onChange={(e) => setBillingForm({ ...billingForm, description: e.target.value })}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input
+                          className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                          placeholder="Amount (USD)"
+                          value={billingForm.amount}
+                          onChange={(e) => setBillingForm({ ...billingForm, amount: e.target.value })}
+                        />
+                        <input
+                          className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                          placeholder="Stripe price ID (optional)"
+                          value={billingForm.stripePriceId}
+                          onChange={(e) => setBillingForm({ ...billingForm, stripePriceId: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <select
+                          className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                          value={billingForm.type}
+                          onChange={(e) => setBillingForm({ ...billingForm, type: e.target.value })}
+                        >
+                          <option value="ONE_TIME">One-time</option>
+                          <option value="RECURRING">Recurring</option>
+                        </select>
+                        <input
+                          className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                          placeholder="Currency"
+                          value={billingForm.currency}
+                          onChange={(e) => setBillingForm({ ...billingForm, currency: e.target.value })}
+                        />
+                        <input
+                          className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                          placeholder="Interval (month)"
+                          value={billingForm.recurringInterval}
+                          onChange={(e) => setBillingForm({ ...billingForm, recurringInterval: e.target.value })}
+                          disabled={billingForm.type !== "RECURRING"}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button onClick={handleSaveBillable} disabled={billingSaving} className="text-sm">
+                          {billingSaving ? "Saving..." : editingBillableId ? "Update template" : "Create template"}
+                        </Button>
+                        {editingBillableId && (
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setEditingBillableId(null);
+                              setBillingForm({ title: "", description: "", amount: "", type: "ONE_TIME", stripePriceId: "", currency: "usd", recurringInterval: "month" });
+                            }}
+                            className="text-sm"
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted">Templates</p>
+                      <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
+                        {billableItems.length ? (
+                          billableItems.map((item) => (
+                            <div key={item.id} className="p-3 border border-white/10 rounded-lg bg-white/5 flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-white font-semibold">{item.title}</p>
+                                <p className="text-xs text-muted">{item.description || "—"}</p>
+                                <p className="text-xs text-muted">
+                                  {item.type === "RECURRING" ? "Recurring" : "One-time"}
+                                  {item.recurringInterval && item.type === "RECURRING" ? ` • ${item.recurringInterval}` : ""}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button variant="outline" size="sm" onClick={() => handleEditBillable(item)}>Edit</Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleDeleteBillable(item.id)}>
+                                  <Trash2 size={14} />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted">No templates yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/10 pt-4">
+                    <p className="text-sm text-muted mb-3">Assign to a client</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <select
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        value={assignmentForm.userId}
+                        onChange={(e) => {
+                          const userId = e.target.value;
+                          setAssignmentForm({ ...assignmentForm, userId });
+                          refreshAssignedBilling(userId);
+                        }}
+                      >
+                        <option value="">Select client</option>
+                        {clients.map((c) => (
+                          <option value={c.id} key={c.id}>{c.name || c.email}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        value={assignmentForm.billableItemId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          const template = billableItems.find((b) => b.id === id);
+                          setAssignmentForm({
+                            ...assignmentForm,
+                            billableItemId: id,
+                            title: template?.title || assignmentForm.title,
+                            description: template?.description || assignmentForm.description,
+                            amount: template?.amountCents ? (template.amountCents / 100).toString() : assignmentForm.amount,
+                            type: template?.type || assignmentForm.type,
+                            stripePriceId: template?.stripePriceId || "",
+                            currency: template?.currency || assignmentForm.currency,
+                            recurringInterval: template?.recurringInterval || assignmentForm.recurringInterval,
+                          });
+                        }}
+                      >
+                        <option value="">Use template (optional)</option>
+                        {billableItems.map((b) => (
+                          <option value={b.id} key={b.id}>{b.title}</option>
+                        ))}
+                      </select>
+                      <input
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        placeholder="Title"
+                        value={assignmentForm.title}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, title: e.target.value })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                      <input
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        placeholder="Amount"
+                        value={assignmentForm.amount}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, amount: e.target.value })}
+                      />
+                      <input
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        placeholder="Stripe price ID"
+                        value={assignmentForm.stripePriceId}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, stripePriceId: e.target.value })}
+                      />
+                      <select
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        value={assignmentForm.type}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, type: e.target.value })}
+                      >
+                        <option value="ONE_TIME">One-time</option>
+                        <option value="RECURRING">Recurring</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                      <input
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        placeholder="Currency"
+                        value={assignmentForm.currency}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, currency: e.target.value })}
+                      />
+                      <input
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                        placeholder="Recurring interval"
+                        disabled={assignmentForm.type !== "RECURRING"}
+                        value={assignmentForm.recurringInterval}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, recurringInterval: e.target.value })}
+                      />
+                      <textarea
+                        className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white h-20 md:h-16"
+                        placeholder="Description"
+                        value={assignmentForm.description}
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, description: e.target.value })}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                      <Button onClick={handleAssignBillable} disabled={assignmentSaving || !assignmentForm.userId} className="text-sm">
+                        {assignmentSaving ? "Assigning..." : "Assign to client"}
+                      </Button>
+                      <p className="text-xs text-muted">Assignments are immediately visible in the client portal.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`${panelClass} p-6 md:p-8`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-xl font-bold text-white">Assigned billable items</h3>
+                      <p className="text-muted text-sm">Filter by client or manage payment status.</p>
+                    </div>
+                    <select
+                      className="bg-background/80 border border-white/10 rounded-lg p-3 text-white text-sm"
+                      value={assignmentForm.userId}
+                      onChange={(e) => {
+                        const userId = e.target.value;
+                        setAssignmentForm({ ...assignmentForm, userId });
+                        refreshAssignedBilling(userId || undefined);
+                      }}
+                    >
+                      <option value="">All clients</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name || c.email}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-3">
+                    {assignedBilling.length ? assignedBilling.map((item) => (
+                      <div key={item.id} className="p-3 border border-white/10 rounded-lg bg-white/5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div>
+                          <p className="text-white font-semibold">{item.title}</p>
+                          <p className="text-xs text-muted">{item.description || "—"}</p>
+                          <p className="text-xs text-muted">
+                            {item.user?.name || item.user?.email || "Client"} • {item.type === "RECURRING" ? "Recurring" : "One-time"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">${item.amountCents ? (item.amountCents / 100).toFixed(2) : "0.00"}</span>
+                          <span className={`px-2 py-1 rounded-full text-[11px] border ${
+                            item.status === "PAID"
+                              ? "border-green-400/40 text-green-200"
+                              : item.status === "CANCELED"
+                                ? "border-red-400/40 text-red-200"
+                                : "border-amber-400/40 text-amber-200"
+                          }`}>{item.status}</span>
+                          {item.status !== "PAID" && (
+                            <Button variant="outline" size="sm" onClick={() => handleMarkAssignmentPaid(item.id)}>
+                              Mark paid
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteAssigned(item.id)}>
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                      </div>
+                    )) : (
+                      <p className="text-sm text-muted">No assigned items yet.</p>
+                    )}
+                  </div>
                 </div>
 
                 <div className={`${panelClass} p-6 md:p-8`}>

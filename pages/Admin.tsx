@@ -157,6 +157,9 @@ export const Admin: React.FC = () => {
 
   useEffect(() => {
     if (!isAuth) return;
+    if (activeView === "clients") {
+      refreshClients();
+    }
     if (activeView === "uptime") {
       refreshUptimeTargets();
     }

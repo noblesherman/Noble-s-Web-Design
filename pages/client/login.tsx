@@ -22,7 +22,7 @@ const ClientLogin: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/clients/login`, {
+      const res = await fetch(`${API_BASE}/api/clients/login`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -63,7 +63,7 @@ const ClientLogin: React.FC = () => {
             Access deliverables, sign contracts, and chat with support—all in one place.
           </p>
           <Button variant="outline" onClick={() => navigate("/client/register")} className="w-fit">
-            Need an account? Register
+            Have an invite? Activate it
           </Button>
         </motion.div>
 

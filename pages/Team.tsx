@@ -40,7 +40,7 @@ export const Team: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/clients/team`, {
+        const res = await fetch(`${API_BASE}/api/clients/team`, {
           credentials: "include",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -96,8 +96,8 @@ export const Team: React.FC = () => {
     try {
       const method = editing ? "PUT" : "POST";
       const url = editing
-        ? `${API_BASE}/clients/team/${editing.id}`
-        : `${API_BASE}/clients/team`;
+        ? `${API_BASE}/api/clients/team/${editing.id}`
+        : `${API_BASE}/api/clients/team`;
       const res = await fetch(url, {
         method,
         credentials: "include",
@@ -128,7 +128,7 @@ export const Team: React.FC = () => {
     setDeletingId(id);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/clients/team/${id}`, {
+      const res = await fetch(`${API_BASE}/api/clients/team/${id}`, {
         method: "DELETE",
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },

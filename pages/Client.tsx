@@ -75,7 +75,7 @@ export const Client: React.FC = () => {
 
     const hydrate = async () => {
       try {
-        const meRes = await fetch(`${API_BASE}/client/me`, {
+        const meRes = await fetch(`${API_BASE}/api/client/me`, {
           credentials: "include",
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -103,7 +103,7 @@ export const Client: React.FC = () => {
 
   const fetchProject = async (token: string) => {
     try {
-      const res = await fetch(`${API_BASE}/client/projects`, {
+      const res = await fetch(`${API_BASE}/api/client/projects`, {
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -126,7 +126,7 @@ export const Client: React.FC = () => {
 
   const fetchFiles = async (token: string) => {
     try {
-      const res = await fetch(`${API_BASE}/client/files`, {
+      const res = await fetch(`${API_BASE}/api/client/files`, {
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -141,7 +141,7 @@ export const Client: React.FC = () => {
     setContractsLoading(true);
     setContractsError(null);
     try {
-      const res = await fetch(`${API_BASE}/client/contracts`, {
+      const res = await fetch(`${API_BASE}/api/client/contracts`, {
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -165,7 +165,7 @@ export const Client: React.FC = () => {
     setTicketsLoading(true);
     setTicketsError(null);
     try {
-      const res = await fetch(`${API_BASE}/client/tickets`, {
+      const res = await fetch(`${API_BASE}/api/client/tickets`, {
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -187,7 +187,7 @@ export const Client: React.FC = () => {
     setTeamLoading(true);
     setTeamError(null);
     try {
-      const res = await fetch(`${API_BASE}/client/team`, {
+      const res = await fetch(`${API_BASE}/api/clients/team`, {
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -234,7 +234,7 @@ export const Client: React.FC = () => {
     setTicketSaving(true);
     setTicketsError(null);
     try {
-      const res = await fetch(`${API_BASE}/client/tickets`, {
+      const res = await fetch(`${API_BASE}/api/client/tickets`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -262,7 +262,7 @@ export const Client: React.FC = () => {
     setTeamSaving(true);
     setTeamError(null);
     try {
-      const res = await fetch(`${API_BASE}/client/team`, {
+      const res = await fetch(`${API_BASE}/api/clients/team`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -285,7 +285,7 @@ export const Client: React.FC = () => {
     setInviteToken(null);
     setFirstTimeStep("pin");
     setHydrateError(null);
-    const res = await fetch(`${API_BASE}/client/login`, {
+    const res = await fetch(`${API_BASE}/api/client/login`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -311,7 +311,7 @@ export const Client: React.FC = () => {
   const startFirstTime = async () => {
     setError(null);
     setAuthMessage(null);
-    const res = await fetch(`${API_BASE}/client/auth/start`, {
+    const res = await fetch(`${API_BASE}/api/client/auth/start`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -333,7 +333,7 @@ export const Client: React.FC = () => {
     setAuthMessage(null);
     setHydrateError(null);
     const tokenPayload = inviteToken;
-    const res = await fetch(`${API_BASE}/client/auth/complete`, {
+    const res = await fetch(`${API_BASE}/api/client/auth/complete`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

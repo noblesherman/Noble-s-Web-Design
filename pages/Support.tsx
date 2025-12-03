@@ -46,7 +46,7 @@ export const Support: React.FC = () => {
     setError(null);
     try {
       const query = statusFilter !== "All" ? `?status=${encodeURIComponent(statusFilter)}` : "";
-      const res = await fetch(`${API_BASE}/clients/tickets${query}`, {
+      const res = await fetch(`${API_BASE}/api/clients/tickets${query}`, {
         credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -65,7 +65,7 @@ export const Support: React.FC = () => {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/clients/tickets`, {
+      const res = await fetch(`${API_BASE}/api/clients/tickets`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

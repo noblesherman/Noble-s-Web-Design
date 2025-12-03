@@ -39,7 +39,7 @@ export const SupportTicket: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/clients/tickets/${ticketId}`, {
+        const res = await fetch(`${API_BASE}/api/clients/tickets/${ticketId}`, {
           credentials: "include",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -63,7 +63,7 @@ export const SupportTicket: React.FC = () => {
     if (!ticketId) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/clients/tickets/${ticketId}/status`, {
+      const res = await fetch(`${API_BASE}/api/clients/tickets/${ticketId}/status`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

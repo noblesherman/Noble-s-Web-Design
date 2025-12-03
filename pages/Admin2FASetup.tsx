@@ -22,7 +22,7 @@ const Admin2FASetup: React.FC = () => {
     const load = async () => {
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/admin/2fa/setup`, {
+        const res = await fetch(`${API_BASE}/api/admin/2fa/setup`, {
           credentials: "include",
         });
         const data = await res.json().catch(() => ({}));
@@ -52,7 +52,7 @@ const Admin2FASetup: React.FC = () => {
     setConfirming(true);
 
     try {
-      const res = await fetch(`${API_BASE}/admin/2fa/verify`, {
+      const res = await fetch(`${API_BASE}/api/admin/2fa/verify`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

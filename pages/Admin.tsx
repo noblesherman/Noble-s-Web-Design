@@ -129,7 +129,7 @@ export const Admin: React.FC = () => {
 
   // Check session on load
   useEffect(() => {
-    fetch(`${API_BASE}/admin/me`, {
+    fetch(`${API_BASE}/api/admin/me`, {
       credentials: "include",
     })
       .then(res => res.json())
@@ -247,7 +247,7 @@ export const Admin: React.FC = () => {
     setInvitePin(null);
     setInviteLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/clients/issue-pin`, {
+      const res = await fetch(`${API_BASE}/api/admin/clients/issue-pin`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -284,7 +284,7 @@ export const Admin: React.FC = () => {
 
   const refreshClients = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/clients`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/clients`, { credentials: "include" });
       const data = await res.json();
       if (data.clients) setClients(data.clients);
     } catch (err: any) {
@@ -301,7 +301,7 @@ export const Admin: React.FC = () => {
     setChargesLoading(true);
     setChargeStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/clients/${targetClientId}/charges`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/clients/${targetClientId}/charges`, { credentials: "include" });
       const data = await res.json();
       if (res.ok && data.charges) {
         setClientCharges(data.charges);
@@ -317,7 +317,7 @@ export const Admin: React.FC = () => {
 
   const refreshProjects = async () => {
     try {
-      const res = await fetch(`${API_BASE}/admin/projects`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/projects`, { credentials: "include" });
       const data = await res.json();
       if (data.projects) setProjects(data.projects);
     } catch {}
@@ -329,7 +329,7 @@ export const Admin: React.FC = () => {
       const params = new URLSearchParams();
       if (filters.query) params.append("search", filters.query);
       if (filters.status !== "all") params.append("status", filters.status);
-      const res = await fetch(`${API_BASE}/admin/leads?${params.toString()}`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/leads?${params.toString()}`, { credentials: "include" });
       const data = await res.json();
       if (data.leads) setLeads(data.leads);
     } catch {
@@ -343,7 +343,7 @@ export const Admin: React.FC = () => {
     setUptimeLoading(true);
     setUptimeStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/uptime`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/uptime`, { credentials: "include" });
       const data = await res.json();
       if (data.targets) {
         setUptimeTargets(data.targets);
@@ -369,7 +369,7 @@ export const Admin: React.FC = () => {
     setSelectedTargetId(targetId);
     setUptimeLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/uptime/logs/${targetId}?limit=75`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/uptime/logs/${targetId}?limit=75`, { credentials: "include" });
       const data = await res.json();
       setUptimeLogs(data.logs || []);
     } catch {
@@ -383,7 +383,7 @@ export const Admin: React.FC = () => {
     setUptimeSaving(true);
     setUptimeStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/uptime`, {
+      const res = await fetch(`${API_BASE}/api/admin/uptime`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -413,7 +413,7 @@ export const Admin: React.FC = () => {
     if (!window.confirm("Delete this monitor? Logs will be removed.")) return;
     setUptimeSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/uptime/${id}`, {
+      const res = await fetch(`${API_BASE}/api/admin/uptime/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -434,7 +434,7 @@ export const Admin: React.FC = () => {
   const loadAlertSettings = async () => {
     setAlertSettingsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/settings/alerts`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/settings/alerts`, { credentials: "include" });
       const data = await res.json();
       if (data.settings) setAlertSettings(data.settings);
     } catch {
@@ -448,7 +448,7 @@ export const Admin: React.FC = () => {
     setAlertSettingsLoading(true);
     setAlertSettingsStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/settings/alerts`, {
+      const res = await fetch(`${API_BASE}/api/admin/settings/alerts`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -468,7 +468,7 @@ export const Admin: React.FC = () => {
   const sendTestAlert = async () => {
     setTestAlertStatus("Sending test alert...");
     try {
-      const res = await fetch(`${API_BASE}/admin/settings/alerts/test`, {
+      const res = await fetch(`${API_BASE}/api/admin/settings/alerts/test`, {
         method: "POST",
         credentials: "include",
       });
@@ -486,7 +486,7 @@ export const Admin: React.FC = () => {
       const params = new URLSearchParams();
       if (ticketsStatusFilter !== "All") params.append("status", ticketsStatusFilter);
       if (ticketsSearch) params.append("search", ticketsSearch);
-      const res = await fetch(`${API_BASE}/admin/tickets?${params.toString()}`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/tickets?${params.toString()}`, { credentials: "include" });
       const data = await res.json();
       if (res.ok && data.tickets) setAdminTickets(data.tickets);
     } catch (err) {
@@ -503,7 +503,7 @@ export const Admin: React.FC = () => {
 
   const updateAdminTicketStatus = async (ticketId: string, status: string) => {
     try {
-      const res = await fetch(`${API_BASE}/admin/tickets/${ticketId}/status`, {
+      const res = await fetch(`${API_BASE}/api/admin/tickets/${ticketId}/status`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -521,7 +521,7 @@ export const Admin: React.FC = () => {
     if (!clientId) return;
     setTeamViewLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/clients/${clientId}/team`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/clients/${clientId}/team`, { credentials: "include" });
       const data = await res.json();
       if (res.ok) setTeamViewMembers(data.members || []);
     } catch (err) {
@@ -535,7 +535,7 @@ export const Admin: React.FC = () => {
     if (!newProject.name) return;
     setProjectStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/projects`, {
+      const res = await fetch(`${API_BASE}/api/admin/projects`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -558,7 +558,7 @@ export const Admin: React.FC = () => {
     setContractLoading(true);
     setContractFetchStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/contracts`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/api/admin/contracts`, { credentials: "include" });
       const data = await res.json();
       if (data.contracts) setContracts(data.contracts);
     } catch {
@@ -580,7 +580,7 @@ export const Admin: React.FC = () => {
         : docusealTemplateId.trim()
           ? `https://docuseal.com/d/${docusealTemplateId.trim()}`
           : "";
-      const res = await fetch(`${API_BASE}/admin/contracts`, {
+      const res = await fetch(`${API_BASE}/api/admin/contracts`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -602,7 +602,7 @@ export const Admin: React.FC = () => {
     setContractDeleteStatus(null);
     setContractDeleteLoading(contractId);
     try {
-      const res = await fetch(`${API_BASE}/admin/contracts/${contractId}`, {
+      const res = await fetch(`${API_BASE}/api/admin/contracts/${contractId}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -625,7 +625,7 @@ export const Admin: React.FC = () => {
     setContractAssignStatus("Assigning...");
     setContractAssignLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/admin/contracts/${assignContractId}/assign`, {
+      const res = await fetch(`${API_BASE}/api/admin/contracts/${assignContractId}/assign`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -647,7 +647,7 @@ export const Admin: React.FC = () => {
     if (!assignProjectId || !assignUserId) return;
     setProjectStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/projects/${assignProjectId}/assign`, {
+      const res = await fetch(`${API_BASE}/api/admin/projects/${assignProjectId}/assign`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -667,7 +667,7 @@ export const Admin: React.FC = () => {
     const draft = projectDrafts[projectId] || {};
     setProjectStatus("Saving project details...");
     try {
-      const res = await fetch(`${API_BASE}/admin/projects/${projectId}/details`, {
+      const res = await fetch(`${API_BASE}/api/admin/projects/${projectId}/details`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -689,7 +689,7 @@ export const Admin: React.FC = () => {
     if (!draft?.title) return;
     setProjectStatus("Logging activity...");
     try {
-      const res = await fetch(`${API_BASE}/admin/projects/${projectId}/activity`, {
+      const res = await fetch(`${API_BASE}/api/admin/projects/${projectId}/activity`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -714,7 +714,7 @@ export const Admin: React.FC = () => {
     const amountValue = draft.amount ? Number(draft.amount) : null;
     const safeAmount = amountValue !== null && !Number.isNaN(amountValue) ? amountValue : null;
     try {
-      const res = await fetch(`${API_BASE}/admin/projects/${projectId}/documents`, {
+      const res = await fetch(`${API_BASE}/api/admin/projects/${projectId}/documents`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -756,7 +756,7 @@ export const Admin: React.FC = () => {
     }
     setFileStatus("Uploading...");
     try {
-      const res = await fetch(`${API_BASE}/admin/files/upload`, {
+      const res = await fetch(`${API_BASE}/api/admin/files/upload`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -800,7 +800,7 @@ export const Admin: React.FC = () => {
     setChargeSaving(true);
     setChargeStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/clients/${selectedBillingClientId}/charges`, {
+      const res = await fetch(`${API_BASE}/api/admin/clients/${selectedBillingClientId}/charges`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -825,7 +825,7 @@ export const Admin: React.FC = () => {
   const handleUpdateChargeStatus = async (id: string, status: "pending" | "paid") => {
     setChargeStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/charges/${id}/status`, {
+      const res = await fetch(`${API_BASE}/api/admin/charges/${id}/status`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -856,7 +856,7 @@ export const Admin: React.FC = () => {
   const handleDeleteLead = async (id: string) => {
     setLeadActionStatus("Deleting lead...");
     try {
-      const res = await fetch(`${API_BASE}/admin/leads/${id}`, {
+      const res = await fetch(`${API_BASE}/api/admin/leads/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -871,7 +871,7 @@ export const Admin: React.FC = () => {
   const handleMarkReplied = async (id: string) => {
     setLeadActionStatus("Updating lead...");
     try {
-      const res = await fetch(`${API_BASE}/admin/leads/${id}/replied`, {
+      const res = await fetch(`${API_BASE}/api/admin/leads/${id}/replied`, {
         method: "POST",
         credentials: "include",
       });

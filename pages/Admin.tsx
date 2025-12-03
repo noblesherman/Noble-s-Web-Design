@@ -24,7 +24,7 @@ import { UptimeSection } from "../components/admin/UptimeSection";
 import { AlertSettingsPanel } from "../components/admin/AlertSettingsPanel";
 
 export const Admin: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const DOCUSEAL_EMBED_URL = import.meta.env.VITE_DOCUSEAL_EMBED_URL || "https://www.docuseal.com/docs/embed";
   const navigate = useNavigate();
 

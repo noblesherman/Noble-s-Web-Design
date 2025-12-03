@@ -22,7 +22,7 @@ const formatMoney = (cents?: number | null, currency = "usd") => {
 };
 
 const CheckoutReturn: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const [searchParams] = useSearchParams();
   const sessionId = searchParams.get("session_id");
   const navigate = useNavigate();
@@ -57,6 +57,7 @@ const CheckoutReturn: React.FC = () => {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/payments/session-status?session_id=${sessionId}`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

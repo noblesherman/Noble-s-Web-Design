@@ -28,7 +28,7 @@ const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const isServerless = process.env.VERCEL === 'true' || process.env.VERCEL === '1' || process.env.SERVERLESS === 'true';
 const PORT = Number(process.env.PORT || 4000);
 const DATABASE_URL = process.env.DATABASE_URL;
-const FRONTEND_URL = process.env.FRONTEND_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:5173');
+const FRONTEND_URL = process.env.FRONTEND_URL || (isProd ? 'https://noblesweb.design' : 'http://localhost:3000');
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PIN_EXP_MINUTES = Number(process.env.PIN_EXP_MINUTES || 30);
@@ -55,7 +55,9 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const allowedOrigins = [FRONTEND_URL, 'https://noblesweb.design'].map(normalizeOrigin).filter(Boolean);
+const allowedOrigins = ['https://noblesweb.design', 'http://localhost:3000']
+  .map(normalizeOrigin)
+  .filter(Boolean);
 const COOKIE_DOMAIN = isProd ? '.noblesweb.design' : undefined;
 const ADMIN_COOKIE_NAME = 'admin_token';
 const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -904,8 +906,8 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 204,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie'],
+  optionsSuccessStatus: 200,
 };
 app.use((req, res, next) => {
   // manual headers to guard against proxies stripping them
@@ -917,9 +919,9 @@ app.use((req, res, next) => {
   }
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cookie');
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    return res.sendStatus(200);
   }
   return next();
 });
@@ -945,7 +947,7 @@ app.use(bodyParser.json({
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
 // Allow both /api/... and unprefixed paths like /admin/login by rewriting when needed.
-const aliasPrefixes = ['/admin', '/client', '/clients', '/contact', '/logout', '/auth'];
+const aliasPrefixes = ['/client', '/clients', '/contact', '/logout', '/auth'];
 app.use((req, _res, next) => {
   if (req.url.startsWith('/api/')) return next();
   const hit = aliasPrefixes.find((prefix) => req.url === prefix || req.url.startsWith(`${prefix}/`));

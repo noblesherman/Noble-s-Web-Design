@@ -17,7 +17,7 @@ type Ticket = {
 const STATUS_OPTIONS = ["All", "Open", "In Progress", "Closed"];
 
 export const Support: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const navigate = useNavigate();
   const panelClass = "rounded-2xl border border-white/10 bg-surface/80 backdrop-blur-xl shadow-[0_16px_60px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-white/20";
   const labelClass = "text-[11px] uppercase tracking-[0.22em] text-muted font-semibold";
@@ -47,6 +47,7 @@ export const Support: React.FC = () => {
     try {
       const query = statusFilter !== "All" ? `?status=${encodeURIComponent(statusFilter)}` : "";
       const res = await fetch(`${API_BASE}/clients/tickets${query}`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -66,6 +67,7 @@ export const Support: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/clients/tickets`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),
       });

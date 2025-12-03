@@ -23,7 +23,7 @@ export const ClientContract: React.FC = () => {
   const { contractId } = useParams<{ contractId: string }>();
   const navigate = useNavigate();
 
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const DOCUSEAL_EMBED_URL = import.meta.env.VITE_DOCUSEAL_EMBED_URL || "";
 
   const [contract, setContract] = useState<ContractDetail | null>(null);
@@ -44,9 +44,11 @@ export const ClientContract: React.FC = () => {
       try {
         const [contractRes, meRes] = await Promise.all([
           fetch(`${API_BASE}/client/contracts/${contractId}`, {
+            credentials: "include",
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API_BASE}/client/me`, {
+            credentials: "include",
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -194,9 +196,11 @@ export const ClientContract: React.FC = () => {
                       try {
                         await fetch(`${API_BASE}/client/contracts/${contractId}/docuseal-complete`, {
                           method: "POST",
+                          credentials: "include",
                           headers: { Authorization: `Bearer ${token}` },
                         });
                         const res = await fetch(`${API_BASE}/client/contracts/${contractId}`, {
+                          credentials: "include",
                           headers: { Authorization: `Bearer ${token}` },
                         });
                         const refreshed = await res.json();

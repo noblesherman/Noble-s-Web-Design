@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { motion } from "framer-motion";
 
 const ClientLogin: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -24,6 +24,7 @@ const ClientLogin: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/clients/login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });

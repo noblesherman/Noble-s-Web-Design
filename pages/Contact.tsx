@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export const Contact: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -33,6 +33,7 @@ export const Contact: React.FC = () => {
     setIsSuccess(false);
     fetch(`${API_BASE}/contact`, {
       method: 'POST',
+      credentials: "include",
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData),
     })

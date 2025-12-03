@@ -14,7 +14,7 @@ type TeamMember = {
 };
 
 export const Team: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const navigate = useNavigate();
 
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -41,6 +41,7 @@ export const Team: React.FC = () => {
       setError(null);
       try {
         const res = await fetch(`${API_BASE}/clients/team`, {
+          credentials: "include",
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -99,6 +100,7 @@ export const Team: React.FC = () => {
         : `${API_BASE}/clients/team`;
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -128,6 +130,7 @@ export const Team: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/clients/team/${id}`, {
         method: "DELETE",
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

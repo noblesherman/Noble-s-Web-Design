@@ -22,7 +22,7 @@ const formatMoney = (cents?: number | null, currency = "usd") => {
 };
 
 const Checkout: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const [searchParams] = useSearchParams();
   const itemId = searchParams.get("itemId");
   const navigate = useNavigate();
@@ -58,6 +58,7 @@ const Checkout: React.FC = () => {
     setError(null);
     try {
       const meRes = await fetch(`${API_BASE}/client/me`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const meData = await meRes.json();
@@ -66,6 +67,7 @@ const Checkout: React.FC = () => {
 
       const res = await fetch(`${API_BASE}/payments/create-session`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ userId, itemId }),
       });

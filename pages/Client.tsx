@@ -6,7 +6,7 @@ import { FileText, Clock, ExternalLink, FileSignature, RefreshCw, Users, LifeBuo
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Client: React.FC = () => {
-  const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
   const TEAM_ENABLED = import.meta.env.VITE_FEATURE_TEAM_ENABLED !== "false";
   const TICKETS_ENABLED = import.meta.env.VITE_FEATURE_TICKETS_ENABLED !== "false";
   const navigate = useNavigate();
@@ -79,6 +79,7 @@ export const Client: React.FC = () => {
     const hydrate = async () => {
       try {
         const meRes = await fetch(`${API_BASE}/client/me`, {
+          credentials: "include",
           headers: { Authorization: `Bearer ${token}` }
         });
         const meData = await meRes.json();
@@ -106,6 +107,7 @@ export const Client: React.FC = () => {
   const fetchProject = async (token: string) => {
     try {
       const res = await fetch(`${API_BASE}/client/projects`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -128,6 +130,7 @@ export const Client: React.FC = () => {
   const fetchFiles = async (token: string) => {
     try {
       const res = await fetch(`${API_BASE}/client/files`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -142,6 +145,7 @@ export const Client: React.FC = () => {
     setBillingError(null);
     try {
       const res = await fetch(`${API_BASE}/client/billing/items`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -159,6 +163,7 @@ export const Client: React.FC = () => {
     setContractsError(null);
     try {
       const res = await fetch(`${API_BASE}/client/contracts`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -182,6 +187,7 @@ export const Client: React.FC = () => {
     setTicketsError(null);
     try {
       const res = await fetch(`${API_BASE}/client/tickets`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -203,6 +209,7 @@ export const Client: React.FC = () => {
     setTeamError(null);
     try {
       const res = await fetch(`${API_BASE}/client/team`, {
+        credentials: "include",
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -251,6 +258,7 @@ export const Client: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/client/tickets`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(ticketForm),
       });
@@ -278,6 +286,7 @@ export const Client: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/client/team`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(teamForm),
       });
@@ -300,6 +309,7 @@ export const Client: React.FC = () => {
     setHydrateError(null);
     const res = await fetch(`${API_BASE}/client/login`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
@@ -325,6 +335,7 @@ export const Client: React.FC = () => {
     setAuthMessage(null);
     const res = await fetch(`${API_BASE}/client/auth/start`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, pin }),
     });
@@ -346,6 +357,7 @@ export const Client: React.FC = () => {
     const tokenPayload = inviteToken;
     const res = await fetch(`${API_BASE}/client/auth/complete`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         inviteToken: tokenPayload || undefined,

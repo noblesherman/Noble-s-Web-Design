@@ -1,6 +1,17 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '../components/ui/Button';
+import { TestSentryButton } from "../TestSentryButton";
+
+
+export default function Home() {
+  return (
+    <div>
+      {/* your original content */}
+      <TestSentryButton />
+    </div>
+  );
+}
 
 export const About: React.FC = () => {
   return (

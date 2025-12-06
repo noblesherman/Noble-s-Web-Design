@@ -6,7 +6,3 @@ Sentry.init({
   // For example, automatic IP address collection on events
   sendDefaultPii: true
 });
-
-const container = document.getElementById("app");
-const root = createRoot(container);
-root.render(<App />);

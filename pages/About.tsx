@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '../components/ui/Button';
-import { TestSentryButton } from "../TestSentryButton";
+import { TestSentryButton } from "../components/TestSentryButton";
 
 
 export default function Home() {
@@ -101,6 +101,5 @@ export const About: React.FC = () => {
     </div>
   );
 };
-
 
 

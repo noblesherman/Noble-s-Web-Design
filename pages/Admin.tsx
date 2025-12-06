@@ -102,6 +102,10 @@ export const Admin: React.FC = () => {
   const [chargeSaving, setChargeSaving] = useState(false);
   const [chargesLoading, setChargesLoading] = useState(false);
   const [chargeStatus, setChargeStatus] = useState<string | null>(null);
+  const [invoiceForm, setInvoiceForm] = useState({ label: "", amount: "", currency: "usd", collectionMethod: "send_invoice", daysUntilDue: "7" });
+  const [invoiceSaving, setInvoiceSaving] = useState(false);
+  const [invoiceStatus, setInvoiceStatus] = useState<string | null>(null);
+  const [invoiceLink, setInvoiceLink] = useState<string | null>(null);
   const handleBillingUnauthorized = () => {
     setChargeStatus("Session expired. Please sign in again.");
     setIsAuth(false);
@@ -894,6 +898,55 @@ export const Admin: React.FC = () => {
     }
   };
 
+  const handleCreateInvoice = async () => {
+    if (!selectedBillingClientId) {
+      setInvoiceStatus("Select a client to create an invoice.");
+      return;
+    }
+    if (!invoiceForm.label.trim() || !invoiceForm.amount) {
+      setInvoiceStatus("Label and amount are required.");
+      return;
+    }
+    const amountNumber = Number(invoiceForm.amount);
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+      setInvoiceStatus("Enter a valid amount.");
+      return;
+    }
+
+    setInvoiceSaving(true);
+    setInvoiceStatus(null);
+    setInvoiceLink(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/create-invoice`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: selectedBillingClientId,
+          label: invoiceForm.label.trim(),
+          amount: amountNumber,
+          currency: invoiceForm.currency || "usd",
+          collectionMethod: invoiceForm.collectionMethod,
+          daysUntilDue: Number(invoiceForm.daysUntilDue || 7),
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        handleBillingUnauthorized();
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || "Unable to create invoice");
+      setInvoiceStatus("Invoice created and ready to share.");
+      setInvoiceLink(data.hostedInvoiceUrl || null);
+      setInvoiceForm({ ...invoiceForm, amount: "", label: "" });
+      loadClientCharges(selectedBillingClientId);
+    } catch (err: any) {
+      setInvoiceStatus(err?.message || "Unable to create invoice");
+    } finally {
+      setInvoiceSaving(false);
+    }
+  };
+
   const handleUpdateChargeStatus = async (id: string, status: "pending" | "paid") => {
     setChargeStatus(null);
     try {
@@ -1401,6 +1454,67 @@ export const Admin: React.FC = () => {
                           {chargeSaving ? "Creating..." : "Create charge"}
                         </Button>
                         <p className="text-xs text-muted">Amounts are in dollars; charges stay pending until the client pays from their portal.</p>
+                      </div>
+
+                      <div className="space-y-3 border-t border-white/10 pt-4">
+                        <p className="text-sm text-muted">Generate a Stripe invoice link</p>
+                        <input
+                          className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                          placeholder="Invoice label"
+                          value={invoiceForm.label}
+                          onChange={(e) => setInvoiceForm({ ...invoiceForm, label: e.target.value })}
+                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <input
+                            className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                            placeholder="Amount (USD)"
+                            type="number"
+                            min="0"
+                            value={invoiceForm.amount}
+                            onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })}
+                          />
+                          <input
+                            className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                            placeholder="Currency"
+                            value={invoiceForm.currency}
+                            onChange={(e) => setInvoiceForm({ ...invoiceForm, currency: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <select
+                            className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                            value={invoiceForm.collectionMethod}
+                            onChange={(e) => setInvoiceForm({ ...invoiceForm, collectionMethod: e.target.value })}
+                          >
+                            <option value="send_invoice">Send invoice (manual payment)</option>
+                            <option value="charge_automatically">Auto-charge default card</option>
+                          </select>
+                          <input
+                            className="w-full bg-background/80 border border-white/10 rounded-lg p-3 text-white"
+                            placeholder="Days until due"
+                            type="number"
+                            min="1"
+                            value={invoiceForm.daysUntilDue}
+                            onChange={(e) => setInvoiceForm({ ...invoiceForm, daysUntilDue: e.target.value })}
+                            disabled={invoiceForm.collectionMethod === "charge_automatically"}
+                          />
+                        </div>
+                        <Button onClick={handleCreateInvoice} disabled={invoiceSaving} className="text-sm">
+                          {invoiceSaving ? "Creating invoice..." : "Create invoice"}
+                        </Button>
+                        {invoiceStatus && (
+                          <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                            {invoiceStatus}
+                          </div>
+                        )}
+                        {invoiceLink && (
+                          <div className="text-xs text-muted bg-white/5 border border-white/10 rounded-lg p-3 space-y-1">
+                            <p className="text-white">Hosted invoice link</p>
+                            <a href={invoiceLink} className="text-primary underline break-all" target="_blank" rel="noreferrer">
+                              {invoiceLink}
+                            </a>
+                          </div>
+                        )}
                       </div>
 
                       <div className="space-y-3">

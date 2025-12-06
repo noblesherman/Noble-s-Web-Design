@@ -132,6 +132,11 @@ const sanitizeText = (value) => {
   return value.trim();
 };
 
+const normalizeEmail = (value) => {
+  if (!value) return null;
+  return String(value).trim().toLowerCase() || null;
+};
+
 const toCents = (amount) => {
   if (amount === null || amount === undefined || amount === '') return null;
   const parsed = Number(amount);
@@ -772,6 +777,8 @@ const fetchChargesForClient = async (clientId) => {
       currency: true,
       status: true,
       stripeSessionId: true,
+      stripeInvoiceId: true,
+      hostedInvoiceUrl: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -783,23 +790,202 @@ const ensureStripeClient = () => {
   return stripe;
 };
 
+const findClientWithUser = async (clientIdOrUserId) => {
+  if (!clientIdOrUserId) return null;
+
+  const direct = await prisma.client.findUnique({
+    where: { id: clientIdOrUserId },
+    include: { user: true },
+  });
+  if (direct) return direct;
+
+  const byUser = await prisma.client.findUnique({
+    where: { userId: clientIdOrUserId },
+    include: { user: true },
+  });
+  if (byUser) return byUser;
+
+  const user = await prisma.user.findUnique({ where: { id: clientIdOrUserId } });
+  if (user) {
+    const client = await ensureClientRecord({ userId: user.id, name: user.name });
+    return prisma.client.findUnique({ where: { id: client.id }, include: { user: true } });
+  }
+
+  return null;
+};
+
+const ensureStripeCustomerForClient = async ({ clientId, userId, email, name, phone, customerId }) => {
+  const stripeClient = ensureStripeClient();
+  const client = clientId || userId ? await findClientWithUser(clientId || userId) : null;
+  const user = client?.user || (userId ? await prisma.user.findUnique({ where: { id: userId } }) : null);
+  const normalizedEmail = normalizeEmail(email || user?.email);
+  const resolvedName = sanitizeText(name || user?.name || client?.company);
+
+  const fetchCustomer = async (id) => {
+    if (!id) return null;
+    try {
+      const retrieved = await stripeClient.customers.retrieve(id);
+      if (!retrieved || retrieved.deleted) return null;
+      return retrieved;
+    } catch (err) {
+      console.warn('Stripe customer retrieval failed', err?.message || err);
+      return null;
+    }
+  };
+
+  let customer = await fetchCustomer(customerId || client?.stripeCustomerId);
+
+  // Attempt search by email if no direct match
+  if (!customer && normalizedEmail) {
+    try {
+      if (typeof stripeClient.customers.search === 'function') {
+        const search = await stripeClient.customers.search({
+          query: `email:'${normalizedEmail}'`,
+          limit: 1,
+        });
+        if (search?.data?.length) customer = search.data[0];
+      }
+    } catch (err) {
+      console.warn('Stripe customer search failed; falling back to list', err?.message || err);
+    }
+
+    if (!customer) {
+      const list = await stripeClient.customers.list({ email: normalizedEmail, limit: 1 });
+      customer = list?.data?.[0];
+    }
+  }
+
+  if (!customer) {
+    customer = await stripeClient.customers.create({
+      email: normalizedEmail || undefined,
+      name: resolvedName || undefined,
+      phone: phone || undefined,
+      metadata: {
+        clientId: client?.id || '',
+        userId: user?.id || '',
+      },
+    });
+  } else if (normalizedEmail && customer.email?.toLowerCase() !== normalizedEmail) {
+    await stripeClient.customers.update(customer.id, { email: normalizedEmail });
+  }
+
+  if (client && customer?.id && client.stripeCustomerId !== customer.id) {
+    await prisma.client.update({
+      where: { id: client.id },
+      data: { stripeCustomerId: customer.id },
+    }).catch(() => {});
+  }
+
+  return { customer, client, user };
+};
+
+const upsertPaymentRecord = async ({
+  userId,
+  stripeSessionId,
+  invoiceId,
+  paymentIntentId,
+  amountCents,
+  currency,
+  mode,
+  status,
+  clientSecret,
+}) => {
+  if (!userId || !stripeSessionId) return null;
+  try {
+    const existing = await prisma.paymentRecord.findFirst({
+      where: {
+        OR: [
+          { stripeSessionId },
+          invoiceId ? { invoiceId } : null,
+          paymentIntentId ? { paymentIntentId } : null,
+        ].filter(Boolean),
+      },
+    });
+
+    const data = {
+      userId,
+      stripeSessionId,
+      invoiceId: invoiceId || null,
+      paymentIntentId: paymentIntentId || null,
+      amountCents: amountCents ?? null,
+      currency: normalizeCurrency(currency || 'usd'),
+      mode: mode || null,
+      status: status || 'PENDING',
+      clientSecret: clientSecret || null,
+    };
+
+    if (existing) {
+      return prisma.paymentRecord.update({ where: { id: existing.id }, data });
+    }
+
+    return prisma.paymentRecord.create({ data });
+  } catch (err) {
+    console.error('payment record upsert failed', err);
+    return null;
+  }
+};
+
+const setPaymentRecordStatus = async ({ stripeSessionId, invoiceId, paymentIntentId }, status, extras = {}) => {
+  const normalizedStatus = (status || '').toUpperCase();
+  const target = await prisma.paymentRecord.findFirst({
+    where: {
+      OR: [
+        stripeSessionId ? { stripeSessionId } : null,
+        invoiceId ? { invoiceId } : null,
+        paymentIntentId ? { paymentIntentId } : null,
+      ].filter(Boolean),
+    },
+  });
+  if (!target) return null;
+
+  try {
+    return prisma.paymentRecord.update({
+      where: { id: target.id },
+      data: {
+        status: normalizedStatus,
+        invoiceId: extras.invoiceId || target.invoiceId,
+        paymentIntentId: extras.paymentIntentId || target.paymentIntentId,
+        amountCents: extras.amountCents ?? target.amountCents,
+        currency: extras.currency ? normalizeCurrency(extras.currency) : target.currency,
+      },
+    });
+  } catch (err) {
+    console.error('payment record status update failed', err);
+    return null;
+  }
+};
+
 const buildChargeReturnUrl = () => `${FRONTEND_URL.replace(/\/$/, '')}/portal/billing/complete?session_id={CHECKOUT_SESSION_ID}`;
 
-const markChargePaid = async ({ chargeId, stripeSessionId }) => {
-  if (!chargeId && !stripeSessionId) return null;
+const markChargePaid = async ({ chargeId, stripeSessionId, stripeInvoiceId, hostedInvoiceUrl }) => {
+  if (!chargeId && !stripeSessionId && !stripeInvoiceId) return null;
   const existing = await prisma.clientCharge.findFirst({
-    where: chargeId ? { id: chargeId } : { stripeSessionId },
+    where: {
+      OR: [
+        chargeId ? { id: chargeId } : null,
+        stripeSessionId ? { stripeSessionId } : null,
+        stripeInvoiceId ? { stripeInvoiceId } : null,
+      ].filter(Boolean),
+    },
   });
   if (!existing) return null;
   if (existing.status === 'paid') {
     if (!existing.stripeSessionId && stripeSessionId) {
-      return prisma.clientCharge.update({ where: { id: existing.id }, data: { stripeSessionId } });
+      return prisma.clientCharge.update({
+        where: { id: existing.id },
+        data: { stripeSessionId, stripeInvoiceId: stripeInvoiceId || existing.stripeInvoiceId || null, hostedInvoiceUrl: hostedInvoiceUrl || existing.hostedInvoiceUrl || null },
+      });
     }
     return existing;
   }
   return prisma.clientCharge.update({
     where: { id: existing.id },
-    data: { status: 'paid', stripeSessionId: stripeSessionId || existing.stripeSessionId || null },
+    data: {
+      status: 'paid',
+      stripeSessionId: stripeSessionId || existing.stripeSessionId || null,
+      stripeInvoiceId: stripeInvoiceId || existing.stripeInvoiceId || null,
+      hostedInvoiceUrl: hostedInvoiceUrl || existing.hostedInvoiceUrl || null,
+    },
   });
 };
 
@@ -1516,6 +1702,13 @@ app.post(['/api/portal/charges/:chargeId/create-checkout-session', '/portal/char
     if (charge.status === 'paid') return fail(res, 400, 'Charge already paid');
 
     const currency = normalizeCurrency(charge.currency || 'usd');
+    const { customer } = await ensureStripeCustomerForClient({
+      clientId: client.id,
+      userId: client.userId,
+      email: charge.client?.user?.email,
+      name: charge.client?.user?.name,
+    });
+
     const metadata = {
       chargeId: charge.id,
       clientId: charge.clientId,
@@ -1535,6 +1728,7 @@ app.post(['/api/portal/charges/:chargeId/create-checkout-session', '/portal/char
           quantity: 1,
         },
       ],
+      customer: customer?.id || undefined,
       customer_email: charge.client?.user?.email || undefined,
       client_reference_id: charge.clientId,
       return_url: buildChargeReturnUrl(),
@@ -1545,6 +1739,16 @@ app.post(['/api/portal/charges/:chargeId/create-checkout-session', '/portal/char
     await prisma.clientCharge.update({
       where: { id: charge.id },
       data: { stripeSessionId: session.id },
+    });
+
+    await upsertPaymentRecord({
+      userId: client.userId,
+      stripeSessionId: session.id,
+      amountCents: charge.amountCents,
+      currency,
+      mode: 'payment',
+      status: 'PENDING',
+      clientSecret: session.client_secret,
     });
 
     ok(res, {
@@ -1589,9 +1793,21 @@ app.get(['/api/portal/checkout-session-status', '/portal/checkout-session-status
 
     const paymentStatus = session.payment_status;
     const status = session.status;
+    const paymentIntentId = typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id;
 
     if ((paymentStatus === 'paid' || status === 'complete') && (charge || metadata.chargeId)) {
       charge = await markChargePaid({ chargeId: charge?.id || metadata.chargeId, stripeSessionId: session.id });
+      await setPaymentRecordStatus(
+        { stripeSessionId: session.id, invoiceId: session.invoice || null, paymentIntentId },
+        'SUCCEEDED',
+        {
+          amountCents: session.amount_total ?? charge?.amountCents ?? null,
+          currency: session.currency || charge?.currency || 'usd',
+          invoiceId: session.invoice || undefined,
+        }
+      );
     }
 
     const amountCents = session.amount_total ?? charge?.amountCents ?? null;
@@ -1604,10 +1820,272 @@ app.get(['/api/portal/checkout-session-status', '/portal/checkout-session-status
       amountCents,
       currency,
       clientSecret: session.client_secret,
+      invoiceId: session.invoice || null,
+      paymentIntentId,
     });
   } catch (err) {
     console.error('checkout session status error', err);
     fail(res, 500, err?.message || 'Unable to load session');
+  }
+});
+
+app.post(['/api/create-customer', '/create-customer'], async (req, res) => {
+  try {
+    const { email, name, phone, clientId, userId, company, customerId } = req.body || {};
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail && !clientId && !userId) {
+      return fail(res, 400, 'email or clientId is required');
+    }
+
+    let user = null;
+    if (userId) {
+      user = await prisma.user.findUnique({ where: { id: userId } });
+    }
+    if (!user && normalizedEmail) {
+      user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    }
+    if (!user && normalizedEmail) {
+      user = await prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          name: name || email,
+          role: 'CLIENT',
+        },
+      });
+    }
+
+    const client = user ? await ensureClientRecord({ userId: user.id, name, company }) : await findClientRecord(clientId);
+    const { customer } = await ensureStripeCustomerForClient({
+      clientId: client?.id || clientId,
+      userId: user?.id,
+      email: normalizedEmail,
+      name,
+      phone,
+      customerId,
+    });
+
+    ok(res, {
+      customerId: customer?.id,
+      clientId: client?.id || clientId || null,
+      userId: user?.id || null,
+      publishableKey: STRIPE_PUBLISHABLE_KEY || process.env.STRIPE_PUBLISHABLE_KEY || null,
+    });
+  } catch (err) {
+    console.error('create customer error', err);
+    fail(res, 500, err?.message || 'Unable to create customer');
+  }
+});
+
+app.post(['/api/create-subscription', '/create-subscription'], async (req, res) => {
+  try {
+    const stripeClient = ensureStripeClient();
+    const {
+      customerId,
+      priceId,
+      email,
+      name,
+      clientId,
+      userId,
+      metadata,
+      trialPeriodDays,
+      returnUrl,
+    } = req.body || {};
+
+    if (!priceId) return fail(res, 400, 'priceId is required');
+
+    const { customer, client, user } = await ensureStripeCustomerForClient({
+      clientId,
+      userId,
+      email,
+      name,
+      customerId,
+    });
+
+    const sessionMetadata = {
+      ...(metadata || {}),
+      clientId: client?.id || clientId || '',
+      userId: user?.id || userId || '',
+      sessionType: 'subscription',
+      priceId,
+    };
+
+    const session = await stripeClient.checkout.sessions.create({
+      ui_mode: 'custom',
+      mode: 'subscription',
+      customer: customer.id,
+      customer_email: customer.email || email || undefined,
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: {
+        metadata: sessionMetadata,
+        trial_period_days: trialPeriodDays || undefined,
+      },
+      payment_method_collection: 'always',
+      client_reference_id: client?.id || clientId || undefined,
+      return_url: sanitizeText(returnUrl) || buildChargeReturnUrl(),
+      metadata: sessionMetadata,
+    });
+
+    await upsertPaymentRecord({
+      userId: user?.id || client?.userId || userId,
+      stripeSessionId: session.id,
+      invoiceId: session.invoice || null,
+      amountCents: null,
+      currency: 'usd',
+      mode: 'subscription',
+      status: 'PENDING',
+      clientSecret: session.client_secret,
+    });
+
+    ok(res, {
+      sessionId: session.id,
+      clientSecret: session.client_secret,
+      subscriptionId: session.subscription || null,
+      customerId: customer.id,
+      url: session.url || null,
+    });
+  } catch (err) {
+    console.error('create subscription error', err);
+    fail(res, 500, err?.message || 'Unable to create subscription');
+  }
+});
+
+app.post(['/api/create-invoice', '/create-invoice'], requireAdmin, async (req, res) => {
+  try {
+    const stripeClient = ensureStripeClient();
+    const {
+      clientId,
+      userId,
+      customerId,
+      email,
+      name,
+      label,
+      description,
+      amount,
+      amountCents,
+      currency,
+      daysUntilDue,
+      metadata,
+      collectionMethod,
+    } = req.body || {};
+
+    const resolvedAmount = resolveAmountCents({ amount, amountCents });
+    if (!resolvedAmount || resolvedAmount <= 0) return fail(res, 400, 'amount must be greater than 0');
+
+    const targetClient = clientId || userId ? await findClientWithUser(clientId || userId) : null;
+    const resolvedEmail = email || targetClient?.user?.email;
+    const resolvedName = name || targetClient?.user?.name || targetClient?.company;
+    const { customer, client } = await ensureStripeCustomerForClient({
+      clientId: targetClient?.id || clientId,
+      userId: targetClient?.userId || userId,
+      email: resolvedEmail,
+      name: resolvedName,
+      customerId,
+    });
+
+    const cleanLabel = sanitizeText(label || description || 'Project invoice');
+    const normalizedCurrency = normalizeCurrency(currency);
+    const invoiceMetadata = {
+      ...(metadata || {}),
+      clientId: client?.id || targetClient?.id || clientId || '',
+      userId: targetClient?.userId || userId || '',
+      label: cleanLabel,
+    };
+
+    await stripeClient.invoiceItems.create({
+      customer: customer.id,
+      price_data: {
+        currency: normalizedCurrency,
+        product_data: { name: cleanLabel },
+        unit_amount: resolvedAmount,
+      },
+      quantity: 1,
+      description: cleanLabel,
+      metadata: invoiceMetadata,
+    });
+
+    const invoice = await stripeClient.invoices.create({
+      customer: customer.id,
+      collection_method: collectionMethod === 'charge_automatically' ? 'charge_automatically' : 'send_invoice',
+      days_until_due: collectionMethod === 'charge_automatically' ? undefined : Number(daysUntilDue || 7),
+      metadata: invoiceMetadata,
+      auto_advance: true,
+    });
+
+    const finalized = invoice.status === 'draft'
+      ? await stripeClient.invoices.finalizeInvoice(invoice.id, { auto_advance: true })
+      : invoice;
+
+    let hostedInvoiceUrl = finalized.hosted_invoice_url || invoice.hosted_invoice_url || null;
+    if (finalized.collection_method === 'send_invoice' && finalized.status !== 'paid') {
+      try {
+        await stripeClient.invoices.sendInvoice(finalized.id);
+      } catch (err) {
+        console.warn('send invoice email failed', err?.message || err);
+      }
+    }
+
+    const chargeStatus = finalized.status === 'paid' ? 'paid' : 'pending';
+    let chargeRecord = null;
+    if (client) {
+      const existing = await prisma.clientCharge.findFirst({
+        where: { stripeInvoiceId: finalized.id, clientId: client.id },
+      });
+      if (existing) {
+        chargeRecord = await prisma.clientCharge.update({
+          where: { id: existing.id },
+          data: {
+            label: cleanLabel,
+            amountCents: resolvedAmount,
+            currency: normalizedCurrency,
+            status: chargeStatus,
+            hostedInvoiceUrl,
+          },
+        });
+      } else {
+        chargeRecord = await prisma.clientCharge.create({
+          data: {
+            clientId: client.id,
+            label: cleanLabel,
+            amountCents: resolvedAmount,
+            currency: normalizedCurrency,
+            status: chargeStatus,
+            stripeInvoiceId: finalized.id,
+            hostedInvoiceUrl,
+            stripeSessionId: finalized.id,
+          },
+        });
+      }
+    }
+
+    if (chargeRecord?.id) {
+      await stripeClient.invoices.update(finalized.id, {
+        metadata: { ...invoiceMetadata, chargeId: chargeRecord.id },
+      });
+    }
+
+    await upsertPaymentRecord({
+      userId: client?.userId || userId || targetClient?.userId,
+      stripeSessionId: finalized.id,
+      invoiceId: finalized.id,
+      paymentIntentId: typeof finalized.payment_intent === 'string' ? finalized.payment_intent : finalized.payment_intent?.id,
+      amountCents: finalized.amount_due ?? resolvedAmount,
+      currency: normalizedCurrency,
+      mode: 'invoice',
+      status: chargeStatus === 'paid' ? 'SUCCEEDED' : 'PENDING',
+      clientSecret: hostedInvoiceUrl,
+    });
+
+    ok(res, {
+      invoiceId: finalized.id,
+      hostedInvoiceUrl,
+      status: finalized.status,
+      chargeId: chargeRecord?.id || null,
+      customerId: customer.id,
+    });
+  } catch (err) {
+    console.error('create invoice error', err);
+    fail(res, 500, err?.message || 'Unable to create invoice');
   }
 });
 
@@ -1634,7 +2112,23 @@ app.post('/api/payments/webhook', async (req, res) => {
       case 'checkout.session.completed': {
         const session = event.data.object;
         const chargeId = session?.metadata?.chargeId;
-        await markChargePaid({ chargeId, stripeSessionId: session?.id });
+        const clientId = session?.metadata?.clientId;
+        if (clientId && session?.customer) {
+          await prisma.client.update({
+            where: { id: clientId },
+            data: { stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id },
+          }).catch(() => {});
+        }
+        await markChargePaid({ chargeId, stripeSessionId: session?.id, stripeInvoiceId: session?.invoice || null });
+        await setPaymentRecordStatus(
+          { stripeSessionId: session?.id, invoiceId: session?.invoice || null },
+          'SUCCEEDED',
+          {
+            amountCents: session?.amount_total,
+            currency: session?.currency,
+            invoiceId: session?.invoice || undefined,
+          }
+        );
         break;
       }
       case 'payment_intent.succeeded': {
@@ -1642,6 +2136,62 @@ app.post('/api/payments/webhook', async (req, res) => {
         const chargeId = intent?.metadata?.chargeId;
         const sessionId = intent?.metadata?.sessionId;
         await markChargePaid({ chargeId, stripeSessionId: sessionId });
+        await setPaymentRecordStatus(
+          { stripeSessionId: sessionId, paymentIntentId: intent.id, invoiceId: intent.invoice || null },
+          'SUCCEEDED',
+          {
+            amountCents: intent.amount_received ?? intent.amount,
+            currency: intent.currency,
+            invoiceId: intent.invoice || undefined,
+            paymentIntentId: intent.id,
+          }
+        );
+        break;
+      }
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        const chargeId = invoice?.metadata?.chargeId;
+        await markChargePaid({
+          chargeId,
+          stripeSessionId: invoice?.metadata?.sessionId || null,
+          stripeInvoiceId: invoice?.id,
+          hostedInvoiceUrl: invoice?.hosted_invoice_url || null,
+        });
+        await setPaymentRecordStatus(
+          { invoiceId: invoice?.id, stripeSessionId: invoice?.metadata?.sessionId || null },
+          'SUCCEEDED',
+          {
+            amountCents: invoice?.amount_paid ?? invoice?.amount_due ?? null,
+            currency: invoice?.currency,
+            paymentIntentId: typeof invoice?.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id,
+          }
+        );
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const chargeId = invoice?.metadata?.chargeId;
+        if (chargeId) {
+          await prisma.clientCharge.update({
+            where: { id: chargeId },
+            data: { status: 'failed' },
+          }).catch(() => {});
+        } else if (invoice?.id) {
+          await prisma.clientCharge.updateMany({
+            where: { stripeInvoiceId: invoice.id },
+            data: { status: 'failed' },
+          });
+        }
+
+        await setPaymentRecordStatus(
+          { invoiceId: invoice?.id, stripeSessionId: invoice?.metadata?.sessionId || null },
+          'FAILED',
+          {
+            amountCents: invoice?.amount_due ?? null,
+            currency: invoice?.currency,
+            paymentIntentId: typeof invoice?.payment_intent === 'string' ? invoice.payment_intent : invoice.payment_intent?.id,
+          }
+        );
         break;
       }
       default:

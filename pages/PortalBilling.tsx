@@ -12,8 +12,28 @@ type ClientCharge = {
   amountCents: number;
   currency: string;
   status: string;
+  stripeInvoiceId?: string | null;
+  stripeSessionId?: string | null;
+  hostedInvoiceUrl?: string | null;
   createdAt: string;
   updatedAt?: string;
+};
+
+type PlanOption = {
+  id: string;
+  name: string;
+  description?: string;
+  priceId: string;
+};
+
+type ActiveCheckout = {
+  id: string;
+  clientSecret: string;
+  sessionId?: string;
+  type?: 'charge' | 'subscription';
+  label?: string;
+  amountCents?: number;
+  currency?: string;
 };
 
 const panelClass =
@@ -37,8 +57,34 @@ const PortalBilling: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusText, setStatusText] = useState<string | null>(null);
-  const [activeCheckout, setActiveCheckout] = useState<{ chargeId: string; clientSecret: string; sessionId?: string } | null>(null);
+  const [activeCheckout, setActiveCheckout] = useState<ActiveCheckout | null>(null);
   const [startingCheckout, setStartingCheckout] = useState<string | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [profile, setProfile] = useState<any>(null);
+
+  const planOptions = useMemo<PlanOption[]>(() => {
+    const plans: PlanOption[] = [];
+    const hostingPrice = import.meta.env.VITE_STRIPE_HOSTING_PRICE_ID;
+    const maintenancePrice = import.meta.env.VITE_STRIPE_MAINTENANCE_PRICE_ID;
+
+    if (hostingPrice) {
+      plans.push({
+        id: "hosting",
+        name: "Hosting + Maintenance",
+        description: "Auto-billed hosting, updates, and monitoring.",
+        priceId: hostingPrice,
+      });
+    }
+    if (maintenancePrice) {
+      plans.push({
+        id: "maintenance",
+        name: "Maintenance only",
+        description: "Site care, updates, and priority support.",
+        priceId: maintenancePrice,
+      });
+    }
+    return plans;
+  }, []);
 
   const fetchCharges = async () => {
     const token = localStorage.getItem("client_token");
@@ -65,14 +111,37 @@ const PortalBilling: React.FC = () => {
     }
   };
 
+  const fetchProfile = async () => {
+    const token = localStorage.getItem("client_token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/client/me`, {
+        credentials: "include",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const user = data?.user || data?.data?.user;
+      if (user) setProfile(user);
+    } catch (err) {
+      console.warn("Unable to load profile", err);
+    }
+  };
+
   useEffect(() => {
     fetchCharges();
+    fetchProfile();
   }, []);
 
   const startCheckout = async (chargeId: string) => {
     const token = localStorage.getItem("client_token");
     if (!token) {
       navigate("/client");
+      return;
+    }
+    const targetCharge = charges.find((c) => c.id === chargeId);
+    if (targetCharge?.hostedInvoiceUrl) {
+      setStatusText("Opening secure hosted invoice...");
+      window.open(targetCharge.hostedInvoiceUrl, "_blank", "noopener,noreferrer");
       return;
     }
     if (!publishableKey) {
@@ -94,7 +163,15 @@ const PortalBilling: React.FC = () => {
       const sessionId = data.sessionId || data.session_id;
       if (!clientSecret) throw new Error("Checkout session is missing a client secret");
 
-      setActiveCheckout({ chargeId, clientSecret, sessionId });
+      setActiveCheckout({
+        id: chargeId,
+        clientSecret,
+        sessionId,
+        type: "charge",
+        label: targetCharge?.label,
+        amountCents: targetCharge?.amountCents,
+        currency: targetCharge?.currency,
+      });
       setStatusText("Secure checkout is ready below.");
     } catch (err: any) {
       setStatusText(err?.message || "Unable to start checkout");
@@ -103,9 +180,70 @@ const PortalBilling: React.FC = () => {
     }
   };
 
+  const startSubscriptionCheckout = async (plan: PlanOption) => {
+    const token = localStorage.getItem("client_token");
+    if (!token) {
+      navigate("/client");
+      return;
+    }
+    if (!publishableKey) {
+      setSubscriptionStatus("Stripe publishable key is missing. Add VITE_STRIPE_PUBLISHABLE_KEY to continue.");
+      return;
+    }
+    setStartingCheckout(plan.id);
+    setSubscriptionStatus(null);
+    try {
+      const customerRes = await fetch(`${API_BASE}/create-customer`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          email: profile?.email,
+          name: profile?.name,
+          clientId: profile?.id,
+        }),
+      });
+      const customerData = await customerRes.json();
+      if (!customerRes.ok) throw new Error(customerData.error || "Unable to create Stripe customer");
+
+      const subscriptionRes = await fetch(`${API_BASE}/create-subscription`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          customerId: customerData.customerId,
+          clientId: customerData.clientId,
+          userId: customerData.userId,
+          priceId: plan.priceId,
+          metadata: { plan: plan.name },
+          returnUrl: `${window.location.origin}/portal/billing/complete?session_id={CHECKOUT_SESSION_ID}`,
+        }),
+      });
+      const subData = await subscriptionRes.json();
+      if (!subscriptionRes.ok) throw new Error(subData.error || "Unable to start subscription");
+
+      const clientSecret = subData.clientSecret || subData.client_secret;
+      const sessionId = subData.sessionId || subData.session_id;
+      if (!clientSecret) throw new Error("Subscription checkout is missing a client secret");
+
+      setActiveCheckout({
+        id: plan.id,
+        clientSecret,
+        sessionId,
+        type: "subscription",
+        label: plan.name,
+      });
+      setSubscriptionStatus("Subscription checkout is ready below.");
+    } catch (err: any) {
+      setSubscriptionStatus(err?.message || "Unable to start subscription");
+    } finally {
+      setStartingCheckout(null);
+    }
+  };
+
   const pendingCharges = charges.filter((c) => (c.status || "").toLowerCase() !== "paid");
   const paidCharges = charges.filter((c) => (c.status || "").toLowerCase() === "paid");
-  const activeCharge = activeCheckout ? charges.find((c) => c.id === activeCheckout.chargeId) : null;
+  const activeCharge = activeCheckout?.type === "charge" ? charges.find((c) => c.id === activeCheckout.id) : null;
 
   const appearance = useMemo(
     () => ({
@@ -179,6 +317,49 @@ const PortalBilling: React.FC = () => {
             </div>
           )}
 
+          <div className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted">Subscriptions</p>
+                <p className="text-white font-semibold">Auto-bill hosting & maintenance</p>
+                <p className="text-xs text-muted">Store a card on file for recurring services.</p>
+              </div>
+              {subscriptionStatus && (
+                <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                  {subscriptionStatus}
+                </div>
+              )}
+            </div>
+            {planOptions.length ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {planOptions.map((plan) => (
+                  <div key={plan.id} className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-2">
+                    <p className="text-white font-semibold">{plan.name}</p>
+                    <p className="text-xs text-muted">{plan.description}</p>
+                    <Button
+                      variant="secondary"
+                      className="text-sm"
+                      disabled={!!startingCheckout}
+                      onClick={() => startSubscriptionCheckout(plan)}
+                    >
+                      {startingCheckout === plan.id ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="animate-spin" size={14} /> Preparing...
+                        </span>
+                      ) : (
+                        "Start subscription"
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-muted bg-white/5 border border-white/10 rounded-lg p-3">
+                Add Stripe price IDs to your environment (VITE_STRIPE_HOSTING_PRICE_ID or VITE_STRIPE_MAINTENANCE_PRICE_ID) to enable self-serve subscriptions.
+              </div>
+            )}
+          </div>
+
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted">
               <Loader2 className="animate-spin" size={16} /> Loading charges...
@@ -192,38 +373,49 @@ const PortalBilling: React.FC = () => {
                 </div>
                 {pendingCharges.length ? (
                   <div className="space-y-3">
-                    {pendingCharges.map((charge) => (
-                      <div key={charge.id} className="p-4 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-white font-semibold">{charge.label}</p>
-                            <p className="text-xs text-muted">{new Date(charge.createdAt).toLocaleString()}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-white">{formatMoney(charge.amountCents, charge.currency)}</p>
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] border border-amber-400/40 text-amber-200">
-                              Pending
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs text-muted">Client not paid yet.</p>
-                          <Button
-                            onClick={() => startCheckout(charge.id)}
-                            disabled={!!startingCheckout}
-                            className="text-sm"
-                          >
-                            {startingCheckout === charge.id ? (
-                              <span className="inline-flex items-center gap-2">
-                                <Loader2 className="animate-spin" size={14} /> Preparing
+                    {pendingCharges.map((charge) => {
+                      const status = (charge.status || "").toLowerCase();
+                      const isFailed = status === "failed";
+                      const statusLabel = isFailed ? "Failed" : "Pending";
+                      const statusClass = isFailed
+                        ? "border-red-400/40 text-red-200"
+                        : "border-amber-400/40 text-amber-200";
+                      return (
+                        <div key={charge.id} className="p-4 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-white font-semibold">{charge.label}</p>
+                              <p className="text-xs text-muted">{new Date(charge.createdAt).toLocaleString()}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-white">{formatMoney(charge.amountCents, charge.currency)}</p>
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] border ${statusClass}`}>
+                                {statusLabel}
                               </span>
-                            ) : (
-                              "Pay now"
-                            )}
-                          </Button>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-muted">
+                              {charge.hostedInvoiceUrl ? "Open the hosted invoice to pay securely." : isFailed ? "Last attempt failed." : "Client not paid yet."}
+                            </p>
+                            <Button
+                              onClick={() => startCheckout(charge.id)}
+                              disabled={!!startingCheckout}
+                              className="text-sm"
+                              variant={isFailed ? "secondary" : "default"}
+                            >
+                              {startingCheckout === charge.id ? (
+                                <span className="inline-flex items-center gap-2">
+                                  <Loader2 className="animate-spin" size={14} /> Preparing
+                                </span>
+                              ) : (
+                                charge.hostedInvoiceUrl ? "Pay invoice" : "Pay now"
+                              )}
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-sm text-muted">No unpaid charges.</p>
@@ -270,11 +462,17 @@ const PortalBilling: React.FC = () => {
                 </h3>
                 <p className="text-muted text-sm">Stay on this page to finish paying for your charge.</p>
               </div>
-              {activeCharge && (
+              {activeCharge ? (
                 <div className="text-right">
                   <p className="text-xs text-muted">Amount</p>
                   <p className="text-xl font-bold text-white">{formatMoney(activeCharge.amountCents, activeCharge.currency)}</p>
                   <p className="text-xs text-muted mt-1">For {activeCharge.label}</p>
+                </div>
+              ) : activeCheckout?.type === "subscription" && (
+                <div className="text-right">
+                  <p className="text-xs text-muted">Subscription</p>
+                  <p className="text-xl font-bold text-white">{activeCheckout.label || "Recurring plan"}</p>
+                  <p className="text-xs text-muted mt-1">Card will be stored for automatic billing.</p>
                 </div>
               )}
             </div>
@@ -284,6 +482,9 @@ const PortalBilling: React.FC = () => {
                 submitLabel="Confirm and pay"
                 onSuccess={() => {
                   setStatusText("Payment submitted...");
+                  if (activeCheckout?.type === "subscription") {
+                    setSubscriptionStatus("Subscription payment submitted. Stripe will confirm shortly.");
+                  }
                   fetchCharges();
                 }}
                 onError={(msg) => setStatusText(msg)}

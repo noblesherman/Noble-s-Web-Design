@@ -46,6 +46,7 @@ model Client {
   userId    String     @unique
   company   String?
   website   String?
+  stripeCustomerId String? @unique
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -360,6 +361,8 @@ model ClientCharge {
   currency        String
   status          String   @default("pending")
   stripeSessionId String?
+  stripeInvoiceId String?  @unique
+  hostedInvoiceUrl String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

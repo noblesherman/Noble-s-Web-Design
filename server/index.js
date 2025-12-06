@@ -58,25 +58,11 @@ const normalizeOrigin = (value) => {
 const frontendOrigin = normalizeOrigin(FRONTEND_URL);
 const adminRedirectOrigin = normalizeOrigin(process.env.ADMIN_REDIRECT);
 const extraCors = (process.env.CORS_ORIGINS || '').split(',').map(normalizeOrigin).filter(Boolean);
-const withWwwVariants = (origin) => {
-  if (!origin) return [];
-  const variants = new Set();
-  const normalized = normalizeOrigin(origin);
-  if (!normalized) return [];
-  variants.add(normalized);
-  if (normalized.includes('//www.')) {
-    variants.add(normalized.replace('//www.', '//'));
-  } else {
-    const parts = normalized.split('//');
-    if (parts[1]) variants.add(`${parts[0]}//www.${parts[1]}`);
-  }
-  return Array.from(variants);
-};
 const allowedOrigins = Array.from(new Set([
-  ...withWwwVariants(frontendOrigin),
-  ...withWwwVariants(adminRedirectOrigin),
-  ...withWwwVariants('https://noblesweb.design'),
-  ...withWwwVariants('http://localhost:3000'),
+  frontendOrigin,
+  adminRedirectOrigin,
+  normalizeOrigin('https://noblesweb.design'),
+  normalizeOrigin('http://localhost:3000'),
   ...extraCors,
 ])).filter(Boolean);
 const normalizeCookieDomain = (value) => {

@@ -102,6 +102,12 @@ export const Admin: React.FC = () => {
   const [chargeSaving, setChargeSaving] = useState(false);
   const [chargesLoading, setChargesLoading] = useState(false);
   const [chargeStatus, setChargeStatus] = useState<string | null>(null);
+  const handleBillingUnauthorized = () => {
+    setChargeStatus("Session expired. Please sign in again.");
+    setIsAuth(false);
+    setLoading(false);
+    navigate("/admin/login");
+  };
 
   const navItems: { id: typeof activeView; label: string; icon: React.ElementType }[] = [
     { id: "dashboard", label: "Overview", icon: LayoutDashboard },
@@ -361,6 +367,10 @@ export const Admin: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/clients/${targetClientId}/charges`, { credentials: "include" });
       const data = await res.json();
+      if (res.status === 401) {
+        handleBillingUnauthorized();
+        return;
+      }
       if (res.ok && data.charges) {
         setClientCharges(data.charges);
       } else {
@@ -869,6 +879,10 @@ export const Admin: React.FC = () => {
         }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleBillingUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Unable to create charge");
       setChargeForm({ label: "", amount: "", currency: chargeForm.currency || "usd" });
       setChargeStatus("Charge created");
@@ -890,6 +904,10 @@ export const Admin: React.FC = () => {
         body: JSON.stringify({ status }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        handleBillingUnauthorized();
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Unable to update charge");
       setChargeStatus(status === "paid" ? "Marked as paid" : "Marked as pending");
       loadClientCharges(selectedBillingClientId);

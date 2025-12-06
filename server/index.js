@@ -55,10 +55,34 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const allowedOrigins = ['https://noblesweb.design', 'http://localhost:3000']
-  .map(normalizeOrigin)
-  .filter(Boolean);
-const COOKIE_DOMAIN = isProd ? '.noblesweb.design' : undefined;
+const frontendOrigin = normalizeOrigin(FRONTEND_URL);
+const adminRedirectOrigin = normalizeOrigin(process.env.ADMIN_REDIRECT);
+const extraCors = (process.env.CORS_ORIGINS || '').split(',').map(normalizeOrigin).filter(Boolean);
+const allowedOrigins = Array.from(new Set([
+  frontendOrigin,
+  adminRedirectOrigin,
+  normalizeOrigin('https://noblesweb.design'),
+  normalizeOrigin('http://localhost:3000'),
+  ...extraCors,
+])).filter(Boolean);
+const normalizeCookieDomain = (value) => {
+  if (!value) return undefined;
+  let host = value;
+  try {
+    host = new URL(value).hostname;
+  } catch {
+    host = String(value || '').replace(/^https?:\/\//i, '').split('/')[0];
+  }
+  host = host.replace(/^www\./i, '').trim();
+  if (!host || host === 'localhost' || /^[0-9.]+$/.test(host)) return undefined;
+  return host.startsWith('.') ? host : `.${host}`;
+};
+const derivedCookieDomain = normalizeCookieDomain(process.env.COOKIE_DOMAIN || FRONTEND_URL);
+const allowInsecureCookies = (process.env.ALLOW_INSECURE_COOKIES || '').toLowerCase() === 'true';
+const isLocalFrontend = (frontendOrigin || '').includes('localhost');
+const secureCookies = !isLocalFrontend && isProd && !allowInsecureCookies;
+const cookieSameSite = secureCookies ? 'none' : 'lax';
+const cookieDomain = secureCookies ? derivedCookieDomain : undefined;
 const ADMIN_COOKIE_NAME = 'admin_token';
 const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -145,9 +169,9 @@ const generateAdminToken = (user) => {
 
 const adminCookieOptions = {
   httpOnly: true,
-  sameSite: 'lax',
-  secure: isProd,
-  domain: COOKIE_DOMAIN,
+  sameSite: cookieSameSite,
+  secure: secureCookies,
+  domain: cookieDomain,
   maxAge: ADMIN_TOKEN_TTL_MS,
   path: '/',
 };
@@ -842,17 +866,11 @@ app.use((req, _res, next) => {
 // SESSION + PASSPORT
 const sessionCookie = {
   httpOnly: true,
-  sameSite: 'none',
-  secure: true,
-  domain: COOKIE_DOMAIN,
+  sameSite: cookieSameSite,
+  secure: secureCookies,
+  domain: cookieDomain,
   maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 };
-
-if (!isProd) {
-  sessionCookie.secure = false;
-  sessionCookie.sameSite = 'lax';
-  sessionCookie.domain = undefined;
-}
 
 app.use(
   session({
@@ -1043,8 +1061,8 @@ app.get('/api/users', requireAdmin, async (_req, res) => {
 // ADMIN LOGOUT
 app.post(['/logout', '/api/logout', '/admin/logout', '/api/admin/logout'], (req, res) => {
   req.session?.destroy(() => {});
-  const clearCookieOptions = COOKIE_DOMAIN
-    ? { path: '/', domain: COOKIE_DOMAIN }
+  const clearCookieOptions = cookieDomain
+    ? { path: '/', domain: cookieDomain }
     : { path: '/' };
   res.clearCookie('connect.sid', clearCookieOptions);
   res.clearCookie(ADMIN_COOKIE_NAME, { ...clearCookieOptions, sameSite: adminCookieOptions.sameSite, secure: adminCookieOptions.secure });

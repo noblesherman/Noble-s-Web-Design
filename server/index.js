@@ -47,6 +47,7 @@ const REQUIRED_ENV = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'ADMIN_EMA
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || '';
+const ALLOWED_ORIGIN = 'https://noblesweb.design';
 const normalizeOrigin = (value) => {
   if (!value) return null;
   try {
@@ -55,16 +56,7 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const frontendOrigin = normalizeOrigin(FRONTEND_URL);
-const adminRedirectOrigin = normalizeOrigin(process.env.ADMIN_REDIRECT);
-const extraCors = (process.env.CORS_ORIGINS || '').split(',').map(normalizeOrigin).filter(Boolean);
-const allowedOrigins = Array.from(new Set([
-  frontendOrigin,
-  adminRedirectOrigin,
-  normalizeOrigin('https://noblesweb.design'),
-  normalizeOrigin('http://localhost:3000'),
-  ...extraCors,
-])).filter(Boolean);
+const allowedOrigins = [normalizeOrigin(ALLOWED_ORIGIN)].filter(Boolean);
 const normalizeCookieDomain = (value) => {
   if (!value) return undefined;
   let host = value;
@@ -78,11 +70,7 @@ const normalizeCookieDomain = (value) => {
   return host.startsWith('.') ? host : `.${host}`;
 };
 const derivedCookieDomain = normalizeCookieDomain(process.env.COOKIE_DOMAIN || FRONTEND_URL);
-const allowInsecureCookies = (process.env.ALLOW_INSECURE_COOKIES || '').toLowerCase() === 'true';
-const isLocalFrontend = (frontendOrigin || '').includes('localhost');
-const secureCookies = !isLocalFrontend && isProd && !allowInsecureCookies;
-const cookieSameSite = secureCookies ? 'none' : 'lax';
-const cookieDomain = secureCookies ? derivedCookieDomain : undefined;
+const cookieDomain = derivedCookieDomain;
 const ADMIN_COOKIE_NAME = 'admin_token';
 const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -174,8 +162,8 @@ const generateAdminToken = (user) => {
 
 const adminCookieOptions = {
   httpOnly: true,
-  sameSite: cookieSameSite,
-  secure: secureCookies,
+  sameSite: 'none',
+  secure: true,
   domain: cookieDomain,
   maxAge: ADMIN_TOKEN_TTL_MS,
   path: '/',
@@ -992,9 +980,9 @@ const markChargePaid = async ({ chargeId, stripeSessionId, stripeInvoiceId, host
 // BASIC MIDDLEWARE
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // allow non-browser (curl) and same-origin
+    if (!origin) return callback(null, ALLOWED_ORIGIN);
     const normalized = normalizeOrigin(origin);
-    if (allowedOrigins.includes(normalized)) return callback(null, origin);
+    if (allowedOrigins.includes(normalized)) return callback(null, ALLOWED_ORIGIN);
     console.warn(`Blocked CORS origin: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },
@@ -1004,15 +992,15 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 app.use((req, res, next) => {
-  // manual headers to guard against proxies stripping them
   const origin = req.headers.origin;
   const normalized = normalizeOrigin(origin);
-  if (origin && allowedOrigins.includes(normalized)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Vary', 'Origin');
+  if (origin && !allowedOrigins.includes(normalized)) {
+    return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
   }
+  res.header('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cookie');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -1052,16 +1040,17 @@ app.use((req, _res, next) => {
 // SESSION + PASSPORT
 const sessionCookie = {
   httpOnly: true,
-  sameSite: cookieSameSite,
-  secure: secureCookies,
+  sameSite: 'none',
+  secure: true,
   domain: cookieDomain,
   maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+  path: '/',
 };
 
 app.use(
   session({
     secret: SESSION_SECRET,
-    resave: false,
+    resave: true,
     saveUninitialized: false,
     proxy: isProd,
     cookie: sessionCookie,

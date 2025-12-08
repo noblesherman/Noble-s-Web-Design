@@ -70,7 +70,7 @@ const normalizeCookieDomain = (value) => {
   return host.startsWith('.') ? host : `.${host}`;
 };
 const derivedCookieDomain = normalizeCookieDomain(process.env.COOKIE_DOMAIN || FRONTEND_URL);
-const cookieDomain = derivedCookieDomain;
+const cookieDomain = isProd ? '.noblesweb.design' : derivedCookieDomain;
 const ADMIN_COOKIE_NAME = 'admin_token';
 const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -169,9 +169,21 @@ const adminCookieOptions = {
   path: '/',
 };
 
+const persistSession = (req) =>
+  new Promise((resolve, reject) => {
+    if (!req.session) return resolve();
+    req.session.save((err) => {
+      if (err) return reject(err);
+      return resolve();
+    });
+  });
+
 const setAdminSessionAndCookie = (req, res, user) => {
   const payload = buildAdminUser(user);
-  if (req.session) req.session.user = payload;
+  if (req.session) {
+    req.session.admin = { id: payload.id, email: payload.email };
+    req.session.user = payload;
+  }
   const token = generateAdminToken(user);
   res.cookie(ADMIN_COOKIE_NAME, token, adminCookieOptions);
   return payload;
@@ -388,10 +400,10 @@ class SafePrismaSessionStore extends PrismaSessionStore {
         });
       } catch (error) {
         // Swallow missing session row errors so we don't crash the server.
-        if (error.code === 'P2025') {
-          console.warn(`Session ${sid} not found in DB during set(). Skipping update.`);
-          if (callback) callback(null);
-          return;
+        if (isRecordNotFoundError(error)) {
+          const created = await this.safeCreateSessionRecord(sid, session);
+          if (callback) callback(null, created || undefined);
+          return created;
         }
         console.error('Critical Session Error:', error);
         throw error;
@@ -400,7 +412,6 @@ class SafePrismaSessionStore extends PrismaSessionStore {
       return result;
     } catch (err) {
       if (isRecordNotFoundError(err)) {
-        console.warn('Session update skipped; record missing', { sid });
         const created = await this.safeCreateSessionRecord(sid, session);
         if (callback) callback(null, created || undefined);
         return created;
@@ -433,10 +444,10 @@ class SafePrismaSessionStore extends PrismaSessionStore {
         });
       } catch (error) {
         // Swallow missing session row errors so we don't crash the server.
-        if (error.code === 'P2025') {
-          console.warn(`Session ${sid} not found in DB during touch(). Skipping update.`);
-          if (callback) callback(null);
-          return;
+        if (isRecordNotFoundError(error)) {
+          const created = await this.safeCreateSessionRecord(sid, session);
+          if (callback) callback(null, created || undefined);
+          return created;
         }
         console.error('Critical Session Error:', error);
         throw error;
@@ -445,10 +456,9 @@ class SafePrismaSessionStore extends PrismaSessionStore {
       return result;
     } catch (err) {
       if (isRecordNotFoundError(err)) {
-        console.warn('Session touch skipped; record missing', { sid });
-        await this.safeCreateSessionRecord(sid, session);
-        if (callback) callback();
-        return;
+        const created = await this.safeCreateSessionRecord(sid, session);
+        if (callback) callback(null, created || undefined);
+        return created;
       }
       if (callback) callback(err);
       throw err;
@@ -625,6 +635,7 @@ const handleAdminLogin = async (req, res) => {
     }
 
     const payload = setAdminSessionAndCookie(req, res, adminUser);
+    await persistSession(req);
     ok(res, { user: payload });
   } catch (err) {
     console.error('admin login error', err);
@@ -979,13 +990,7 @@ const markChargePaid = async ({ chargeId, stripeSessionId, stripeInvoiceId, host
 
 // BASIC MIDDLEWARE
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, ALLOWED_ORIGIN);
-    const normalized = normalizeOrigin(origin);
-    if (allowedOrigins.includes(normalized)) return callback(null, ALLOWED_ORIGIN);
-    console.warn(`Blocked CORS origin: ${origin}`);
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: ALLOWED_ORIGIN,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie'],
@@ -1062,7 +1067,9 @@ app.use(
 );
 
 app.use((req, _res, next) => {
-  if (req.session?.user) {
+  if (req.session?.admin) {
+    req.user = { ...req.session.admin, role: 'ADMIN' };
+  } else if (req.session?.user) {
     req.user = req.session.user;
   }
   next();
@@ -1079,9 +1086,11 @@ const extractAdminToken = (req) => {
 };
 
 const authenticateAdminFromRequest = async (req) => {
-  if (req.session?.user?.role === 'ADMIN') {
-    req.user = req.session.user;
-    return req.session.user;
+  const sessionAdmin = req.session?.admin;
+  if (sessionAdmin?.id && sessionAdmin?.email) {
+    const adminUser = { ...sessionAdmin, role: 'ADMIN' };
+    req.user = adminUser;
+    return adminUser;
   }
 
   const token = extractAdminToken(req);
@@ -1093,7 +1102,15 @@ const authenticateAdminFromRequest = async (req) => {
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user || user.role !== 'ADMIN') return null;
     const adminUser = buildAdminUser(user);
-    if (req.session) req.session.user = adminUser;
+    if (req.session) {
+      req.session.admin = { id: adminUser.id, email: adminUser.email };
+      req.session.user = adminUser;
+      try {
+        await persistSession(req);
+      } catch (saveErr) {
+        console.error('admin session persist failed', saveErr);
+      }
+    }
     req.user = adminUser;
     return adminUser;
   } catch (err) {
@@ -1105,6 +1122,10 @@ const authenticateAdminFromRequest = async (req) => {
 // ADMIN AUTH GUARD
 const requireAdmin = async (req, res, next) => {
   try {
+    if (req.session?.admin) {
+      req.user = { ...req.session.admin, role: 'ADMIN' };
+      return next();
+    }
     const adminUser = await authenticateAdminFromRequest(req);
     if (!adminUser) return res.status(401).json({ error: 'Unauthorized' });
     req.user = adminUser;
@@ -1152,7 +1173,7 @@ app.get('/api/admin/2fa/setup', async (req, res) => {
       (typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
         ? req.headers.authorization.slice(7)
         : null);
-    const hasSessionAdmin = req.session?.user?.role === 'ADMIN';
+    const hasSessionAdmin = !!req.session?.admin;
 
     if (!hasSessionAdmin && (!ADMIN_PASSWORD || providedPassword !== ADMIN_PASSWORD)) {
       return res.status(401).json({ error: 'Invalid admin password' });

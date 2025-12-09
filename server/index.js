@@ -168,7 +168,7 @@ const generateAdminToken = (user) => {
 const adminCookieOptions = {
   httpOnly: true,
   sameSite: 'none',
-  secure: true,
+  secure: true, // User requested strict secure: true
   domain: cookieDomain,
   maxAge: ADMIN_TOKEN_TTL_MS,
   path: '/',
@@ -1001,22 +1001,6 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie'],
   optionsSuccessStatus: 200,
 };
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const normalized = normalizeOrigin(origin);
-  if (origin && !allowedOrigins.includes(normalized)) {
-    return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
-  }
-  res.header('Access-Control-Allow-Origin', origin || allowedOrigins[0]);
-  res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cookie');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  return next();
-});
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 

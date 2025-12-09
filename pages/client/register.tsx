@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { motion } from "framer-motion";
 
 const ClientRegister: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const navigate = useNavigate();
 
   const [name, setName] = useState("");

@@ -47,7 +47,6 @@ const REQUIRED_ENV = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'ADMIN_EMA
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || '';
-const ALLOWED_ORIGIN = 'https://noblesweb.design';
 const normalizeOrigin = (value) => {
   if (!value) return null;
   try {
@@ -56,7 +55,12 @@ const normalizeOrigin = (value) => {
     return String(value).replace(/\/$/, '');
   }
 };
-const allowedOrigins = [normalizeOrigin(ALLOWED_ORIGIN)].filter(Boolean);
+const allowedOrigins = [
+  'https://noblesweb.design',
+  'https://portal.noblesweb.design',
+  'http://localhost:3000',
+  process.env.FRONTEND_URL ? normalizeOrigin(process.env.FRONTEND_URL) : null
+].filter(Boolean);
 const normalizeCookieDomain = (value) => {
   if (!value) return undefined;
   let host = value;
@@ -70,7 +74,7 @@ const normalizeCookieDomain = (value) => {
   return host.startsWith('.') ? host : `.${host}`;
 };
 const derivedCookieDomain = normalizeCookieDomain(process.env.COOKIE_DOMAIN || FRONTEND_URL);
-const cookieDomain = isProd ? '.noblesweb.design' : derivedCookieDomain;
+const cookieDomain = isProd ? '.noblesweb.design' : undefined;
 const ADMIN_COOKIE_NAME = 'admin_token';
 const ADMIN_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -305,18 +309,18 @@ const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || SMTP_FROM;
 
 const mailer = SMTP_HOST && SMTP_USER && SMTP_PASS
   ? nodemailer.createTransport({
-      service: SMTP_HOST.includes('gmail') ? 'gmail' : undefined,
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_SECURE || SMTP_PORT === 465,
-      requireTLS: !(SMTP_SECURE || SMTP_PORT === 465),
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-      pool: false,
-      connectionTimeout: 10000,
-      greetingTimeout: 8000,
-      socketTimeout: 10000,
-      tls: { servername: SMTP_HOST },
-    })
+    service: SMTP_HOST.includes('gmail') ? 'gmail' : undefined,
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE || SMTP_PORT === 465,
+    requireTLS: !(SMTP_SECURE || SMTP_PORT === 465),
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    pool: false,
+    connectionTimeout: 10000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
+    tls: { servername: SMTP_HOST },
+  })
   : null;
 
 const ensureSiteSettings = async () => {
@@ -872,7 +876,7 @@ const ensureStripeCustomerForClient = async ({ clientId, userId, email, name, ph
     await prisma.client.update({
       where: { id: client.id },
       data: { stripeCustomerId: customer.id },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   return { customer, client, user };
@@ -990,7 +994,7 @@ const markChargePaid = async ({ chargeId, stripeSessionId, stripeInvoiceId, host
 
 // BASIC MIDDLEWARE
 const corsOptions = {
-  origin: ALLOWED_ORIGIN,
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie'],
@@ -1002,7 +1006,7 @@ app.use((req, res, next) => {
   if (origin && !allowedOrigins.includes(normalized)) {
     return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
   }
-  res.header('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.header('Access-Control-Allow-Origin', origin || allowedOrigins[0]);
   res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
@@ -1256,7 +1260,7 @@ app.get('/api/users', requireAdmin, async (_req, res) => {
 
 // ADMIN LOGOUT
 app.post(['/logout', '/api/logout', '/admin/logout', '/api/admin/logout'], (req, res) => {
-  req.session?.destroy(() => {});
+  req.session?.destroy(() => { });
   const clearCookieOptions = cookieDomain
     ? { path: '/', domain: cookieDomain }
     : { path: '/' };
@@ -1292,23 +1296,23 @@ app.post('/api/admin/clients', requireAdmin, async (req, res) => {
     const existing = await prisma.user.findUnique({ where: { email } });
     const user = existing
       ? await prisma.user.update({
-          where: { id: existing.id },
-          data: {
-            name: name || existing.name,
-            role: 'CLIENT',
-            passwordHash: password ? passwordHash : existing.passwordHash,
-            tempPinHash: password ? null : existing.tempPinHash,
-            tempPinExpiresAt: password ? null : existing.tempPinExpiresAt,
-          },
-        })
+        where: { id: existing.id },
+        data: {
+          name: name || existing.name,
+          role: 'CLIENT',
+          passwordHash: password ? passwordHash : existing.passwordHash,
+          tempPinHash: password ? null : existing.tempPinHash,
+          tempPinExpiresAt: password ? null : existing.tempPinExpiresAt,
+        },
+      })
       : await prisma.user.create({
-          data: {
-            email,
-            name: name || email,
-            role: 'CLIENT',
-            passwordHash,
-          },
-        });
+        data: {
+          email,
+          name: name || email,
+          role: 'CLIENT',
+          passwordHash,
+        },
+      });
 
     await ensureClientRecord({ userId: user.id, name, company });
 
@@ -2127,7 +2131,7 @@ app.post('/api/payments/webhook', async (req, res) => {
           await prisma.client.update({
             where: { id: clientId },
             data: { stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id },
-          }).catch(() => {});
+          }).catch(() => { });
         }
         await markChargePaid({ chargeId, stripeSessionId: session?.id, stripeInvoiceId: session?.invoice || null });
         await setPaymentRecordStatus(
@@ -2185,7 +2189,7 @@ app.post('/api/payments/webhook', async (req, res) => {
           await prisma.clientCharge.update({
             where: { id: chargeId },
             data: { status: 'failed' },
-          }).catch(() => {});
+          }).catch(() => { });
         } else if (invoice?.id) {
           await prisma.clientCharge.updateMany({
             where: { stripeInvoiceId: invoice.id },

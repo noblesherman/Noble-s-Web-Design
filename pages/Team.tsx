@@ -14,7 +14,7 @@ type TeamMember = {
 };
 
 export const Team: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const navigate = useNavigate();
 
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -245,9 +245,9 @@ export const Team: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <input className="bg-background border border-white/10 rounded-lg p-3 text-sm text-white" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input className="bg-background border border-white/10 rounded-lg p-3 text-sm text-white" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <input className="bg-background border border-white/10 rounded-lg p-3 text-sm text-white" placeholder="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} />
-            <input className="bg-background border border-white/10 rounded-lg p-3 text-sm text-white" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          </div>
+              <input className="bg-background border border-white/10 rounded-lg p-3 text-sm text-white" placeholder="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} />
+              <input className="bg-background border border-white/10 rounded-lg p-3 text-sm text-white" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <input
                 type="file"

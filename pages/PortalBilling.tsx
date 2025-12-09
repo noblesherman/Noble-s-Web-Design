@@ -49,7 +49,7 @@ const formatMoney = (cents?: number | null, currency = "usd") => {
 };
 
 const PortalBilling: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const navigate = useNavigate();
   const { stripePromise, publishableKey } = useStripePromise();
 

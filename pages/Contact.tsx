@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export const Contact: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -22,7 +22,7 @@ export const Contact: React.FC = () => {
 
   const handleNext = () => setStep(prev => prev + 1);
   const handleBack = () => setStep(prev => prev - 1);
-  
+
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -56,7 +56,7 @@ export const Contact: React.FC = () => {
   if (isSuccess) {
     return (
       <div className="min-h-screen pt-32 pb-24 px-4 md:px-8 max-w-3xl mx-auto flex flex-col items-center justify-center text-center">
-        <motion.div 
+        <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           className="w-24 h-24 rounded-full bg-green-500/20 flex items-center justify-center mb-8"
@@ -96,8 +96,8 @@ export const Contact: React.FC = () => {
               <div className="grid grid-cols-1 gap-6">
                 <div>
                   <label className="block text-sm text-muted mb-2">Name</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={formData.name}
                     onChange={(e) => handleChange('name', e.target.value)}
                     className="w-full bg-surface border border-white/10 rounded-lg p-4 text-white focus:border-primary outline-none"
@@ -106,8 +106,8 @@ export const Contact: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm text-muted mb-2">Business Name</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={formData.businessName}
                     onChange={(e) => handleChange('businessName', e.target.value)}
                     className="w-full bg-surface border border-white/10 rounded-lg p-4 text-white focus:border-primary outline-none"
@@ -116,8 +116,8 @@ export const Contact: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm text-muted mb-2">Email</label>
-                  <input 
-                    type="email" 
+                  <input
+                    type="email"
                     value={formData.email}
                     onChange={(e) => handleChange('email', e.target.value)}
                     className="w-full bg-surface border border-white/10 rounded-lg p-4 text-white focus:border-primary outline-none"
@@ -127,9 +127,9 @@ export const Contact: React.FC = () => {
               </div>
 
               <div className="flex justify-end pt-8">
-                 <Button onClick={handleNext} disabled={!formData.name || !formData.email}>
-                   Next Step <ChevronRight className="ml-2" size={16} />
-                 </Button>
+                <Button onClick={handleNext} disabled={!formData.name || !formData.email}>
+                  Next Step <ChevronRight className="ml-2" size={16} />
+                </Button>
               </div>
             </motion.div>
           )}
@@ -158,11 +158,10 @@ export const Contact: React.FC = () => {
                       key={opt}
                       type="button"
                       onClick={() => handleChange('projectType', opt)}
-                      className={`p-4 rounded-lg border text-left transition-all ${
-                        formData.projectType === opt 
-                        ? 'border-primary bg-primary/10 text-white' 
-                        : 'border-white/10 bg-surface text-muted hover:border-white/30'
-                      }`}
+                      className={`p-4 rounded-lg border text-left transition-all ${formData.projectType === opt
+                          ? 'border-primary bg-primary/10 text-white'
+                          : 'border-white/10 bg-surface text-muted hover:border-white/30'
+                        }`}
                     >
                       {opt}
                     </button>
@@ -184,11 +183,10 @@ export const Contact: React.FC = () => {
                       key={opt}
                       type="button"
                       onClick={() => handleChange('priority', opt)}
-                      className={`p-4 rounded-lg border text-left transition-all ${
-                        formData.priority === opt 
-                        ? 'border-primary bg-primary/10 text-white' 
-                        : 'border-white/10 bg-surface text-muted hover:border-white/30'
-                      }`}
+                      className={`p-4 rounded-lg border text-left transition-all ${formData.priority === opt
+                          ? 'border-primary bg-primary/10 text-white'
+                          : 'border-white/10 bg-surface text-muted hover:border-white/30'
+                        }`}
                     >
                       {opt}
                     </button>
@@ -197,12 +195,12 @@ export const Contact: React.FC = () => {
               </div>
 
               <div className="flex justify-between pt-8">
-                 <Button variant="secondary" onClick={handleBack}>
-                   <ChevronLeft className="mr-2" size={16} /> Back
-                 </Button>
-                 <Button onClick={handleNext} disabled={!formData.projectType || !formData.priority}>
-                   Next Step <ChevronRight className="ml-2" size={16} />
-                 </Button>
+                <Button variant="secondary" onClick={handleBack}>
+                  <ChevronLeft className="mr-2" size={16} /> Back
+                </Button>
+                <Button onClick={handleNext} disabled={!formData.projectType || !formData.priority}>
+                  Next Step <ChevronRight className="ml-2" size={16} />
+                </Button>
               </div>
             </motion.div>
           )}
@@ -232,11 +230,10 @@ export const Contact: React.FC = () => {
                       key={opt}
                       type="button"
                       onClick={() => handleChange('scope', opt)}
-                      className={`p-4 rounded-lg border text-left transition-all ${
-                        formData.scope === opt 
-                        ? 'border-primary bg-primary/10 text-white' 
-                        : 'border-white/10 bg-surface text-muted hover:border-white/30'
-                      }`}
+                      className={`p-4 rounded-lg border text-left transition-all ${formData.scope === opt
+                          ? 'border-primary bg-primary/10 text-white'
+                          : 'border-white/10 bg-surface text-muted hover:border-white/30'
+                        }`}
                     >
                       {opt}
                     </button>
@@ -257,11 +254,10 @@ export const Contact: React.FC = () => {
                       key={opt}
                       type="button"
                       onClick={() => handleChange('timeline', opt)}
-                      className={`p-4 rounded-lg border text-left transition-all ${
-                        formData.timeline === opt 
-                        ? 'border-primary bg-primary/10 text-white' 
-                        : 'border-white/10 bg-surface text-muted hover:border-white/30'
-                      }`}
+                      className={`p-4 rounded-lg border text-left transition-all ${formData.timeline === opt
+                          ? 'border-primary bg-primary/10 text-white'
+                          : 'border-white/10 bg-surface text-muted hover:border-white/30'
+                        }`}
                     >
                       {opt}
                     </button>
@@ -283,11 +279,10 @@ export const Contact: React.FC = () => {
                       key={opt}
                       type="button"
                       onClick={() => handleChange('budget', opt)}
-                      className={`p-4 rounded-lg border text-left transition-all ${
-                        formData.budget === opt 
-                        ? 'border-primary bg-primary/10 text-white' 
-                        : 'border-white/10 bg-surface text-muted hover:border-white/30'
-                      }`}
+                      className={`p-4 rounded-lg border text-left transition-all ${formData.budget === opt
+                          ? 'border-primary bg-primary/10 text-white'
+                          : 'border-white/10 bg-surface text-muted hover:border-white/30'
+                        }`}
                     >
                       {opt}
                     </button>
@@ -297,7 +292,7 @@ export const Contact: React.FC = () => {
 
               <div>
                 <h3 className="text-2xl text-white mb-4">Anything you want me to know?</h3>
-                <textarea 
+                <textarea
                   value={formData.notes}
                   onChange={(e) => handleChange('notes', e.target.value)}
                   className="w-full h-32 bg-surface border border-white/10 rounded-lg p-4 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none resize-none"
@@ -306,12 +301,12 @@ export const Contact: React.FC = () => {
               </div>
 
               <div className="flex justify-between pt-8">
-                 <Button variant="secondary" onClick={handleBack}>
-                   <ChevronLeft className="mr-2" size={16} /> Back
-                 </Button>
-                 <Button type="submit" disabled={!formData.scope || !formData.timeline || !formData.budget || isSubmitting}>
-                   {isSubmitting ? 'Sending...' : 'Send Request'}
-                 </Button>
+                <Button variant="secondary" onClick={handleBack}>
+                  <ChevronLeft className="mr-2" size={16} /> Back
+                </Button>
+                <Button type="submit" disabled={!formData.scope || !formData.timeline || !formData.budget || isSubmitting}>
+                  {isSubmitting ? 'Sending...' : 'Send Request'}
+                </Button>
               </div>
             </motion.div>
           )}

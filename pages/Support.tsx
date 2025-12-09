@@ -17,7 +17,7 @@ type Ticket = {
 const STATUS_OPTIONS = ["All", "Open", "In Progress", "Closed"];
 
 export const Support: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const navigate = useNavigate();
   const panelClass = "rounded-2xl border border-white/10 bg-surface/80 backdrop-blur-xl shadow-[0_16px_60px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-white/20";
   const labelClass = "text-[11px] uppercase tracking-[0.22em] text-muted font-semibold";
@@ -120,9 +120,8 @@ export const Support: React.FC = () => {
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-2 rounded-lg text-xs border ${
-                statusFilter === s ? "border-primary bg-primary/10 text-white" : "border-white/10 text-muted hover:border-white/30"
-              }`}
+              className={`px-3 py-2 rounded-lg text-xs border ${statusFilter === s ? "border-primary bg-primary/10 text-white" : "border-white/10 text-muted hover:border-white/30"
+                }`}
             >
               {s}
             </button>
@@ -146,13 +145,12 @@ export const Support: React.FC = () => {
                     <p className="text-lg font-semibold">{t.title}</p>
                     <p className="text-sm text-muted">{t.category} • {t.priority}</p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-[11px] border ${
-                    t.status === "Closed"
+                  <span className={`px-3 py-1 rounded-full text-[11px] border ${t.status === "Closed"
                       ? "border-green-400/50 bg-green-400/10 text-green-200"
                       : t.status === "In Progress"
                         ? "border-amber-400/50 bg-amber-400/10 text-amber-200"
                         : "border-cyan-400/50 bg-cyan-400/10 text-cyan-200"
-                  }`}>
+                    }`}>
                     {t.status}
                   </span>
                 </div>

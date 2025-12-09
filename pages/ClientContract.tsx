@@ -23,7 +23,7 @@ export const ClientContract: React.FC = () => {
   const { contractId } = useParams<{ contractId: string }>();
   const navigate = useNavigate();
 
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const DOCUSEAL_EMBED_URL = import.meta.env.VITE_DOCUSEAL_EMBED_URL || "";
 
   const [contract, setContract] = useState<ContractDetail | null>(null);
@@ -125,11 +125,10 @@ export const ClientContract: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <span
-                className={`px-3 py-1 rounded-full text-xs border ${
-                  alreadySigned
+                className={`px-3 py-1 rounded-full text-xs border ${alreadySigned
                     ? "border-green-400/30 bg-green-400/10 text-green-300"
                     : "border-amber-400/30 bg-amber-400/10 text-amber-200"
-                }`}
+                  }`}
               >
                 {alreadySigned ? "Signed" : "Awaiting signature"}
               </span>

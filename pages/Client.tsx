@@ -6,7 +6,7 @@ import { FileText, Clock, ExternalLink, FileSignature, RefreshCw, Users, LifeBuo
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Client: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const TEAM_ENABLED = import.meta.env.VITE_FEATURE_TEAM_ENABLED !== "false";
   const TICKETS_ENABLED = import.meta.env.VITE_FEATURE_TICKETS_ENABLED !== "false";
   const navigate = useNavigate();
@@ -508,9 +508,8 @@ export const Client: React.FC = () => {
 
               <div className="flex items-center gap-2 mb-4">
                 <button
-                  className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
-                    mode === "login" ? "border-white/30 bg-white/10 text-white" : "border-white/10 text-muted hover:text-white"
-                  }`}
+                  className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${mode === "login" ? "border-white/30 bg-white/10 text-white" : "border-white/10 text-muted hover:text-white"
+                    }`}
                   onClick={() => {
                     setMode("login");
                     setFirstTimeStep("pin");
@@ -524,9 +523,8 @@ export const Client: React.FC = () => {
                   Login
                 </button>
                 <button
-                  className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
-                    mode === "firstTime" ? "border-white/30 bg-white/10 text-white" : "border-white/10 text-muted hover:text-white"
-                  }`}
+                  className={`flex-1 px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${mode === "firstTime" ? "border-white/30 bg-white/10 text-white" : "border-white/10 text-muted hover:text-white"
+                    }`}
                   onClick={() => {
                     setMode("firstTime");
                     setFirstTimeStep("pin");
@@ -962,13 +960,12 @@ export const Client: React.FC = () => {
                       <div key={t.id} className="p-4 space-y-1">
                         <div className="flex items-center justify-between">
                           <p className="text-white font-semibold">{t.title}</p>
-                          <span className={`px-2 py-1 rounded-full text-[11px] border ${
-                            t.status === "Closed"
+                          <span className={`px-2 py-1 rounded-full text-[11px] border ${t.status === "Closed"
                               ? "border-green-400/40 text-green-200"
                               : t.status === "In Progress"
                                 ? "border-amber-400/40 text-amber-200"
                                 : "border-cyan-400/40 text-cyan-200"
-                          }`}>{t.status}</span>
+                            }`}>{t.status}</span>
                         </div>
                         <p className="text-sm text-muted line-clamp-2">{t.description}</p>
                         {t.adminMessage && <p className="text-xs text-primary">Admin note: {t.adminMessage}</p>}
@@ -1083,11 +1080,11 @@ export const Client: React.FC = () => {
                 View &amp; Sign Contracts
               </button>
             </div>
-            </div>
+          </div>
 
-            <div className="mt-6">
-              {contractsOpen ? (
-                <ClientContractsList
+          <div className="mt-6">
+            {contractsOpen ? (
+              <ClientContractsList
                 contracts={contracts}
                 loading={contractsLoading}
                 onRefresh={refreshContracts}
@@ -1098,8 +1095,8 @@ export const Client: React.FC = () => {
                   ? `${unsignedContracts} contract${unsignedContracts > 1 ? "s" : ""} pending signature.`
                   : "All assigned contracts are signed."}
               </div>
-              )}
-            </div>
+            )}
+          </div>
         </motion.div>
 
         {!project && (

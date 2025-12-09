@@ -8,7 +8,7 @@ const panelClasses =
   "w-full max-w-lg mx-auto rounded-2xl bg-[#0b0f1a]/90 border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-lg";
 
 const Admin2FASetup: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const [qr, setQr] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [code, setCode] = useState("");

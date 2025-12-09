@@ -19,7 +19,7 @@ type Ticket = {
 
 export const SupportTicket: React.FC = () => {
   const { ticketId } = useParams<{ ticketId: string }>();
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const navigate = useNavigate();
   const panelClass = "rounded-2xl border border-white/10 bg-surface/80 backdrop-blur-xl shadow-[0_16px_60px_rgba(0,0,0,0.45)] transition-all duration-300 hover:border-white/20";
 
@@ -134,13 +134,12 @@ export const SupportTicket: React.FC = () => {
               </div>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-              <span className={`inline-block px-3 py-1 rounded-full text-xs border ${
-                ticket.status === "Closed"
+              <span className={`inline-block px-3 py-1 rounded-full text-xs border ${ticket.status === "Closed"
                   ? "border-green-400/50 bg-green-400/10 text-green-200"
                   : ticket.status === "In Progress"
                     ? "border-amber-400/50 bg-amber-400/10 text-amber-200"
                     : "border-cyan-400/50 bg-cyan-400/10 text-cyan-200"
-              }`}>
+                }`}>
                 {status}
               </span>
               <p className="text-[11px] text-muted">Status updates are handled by Noble support.</p>

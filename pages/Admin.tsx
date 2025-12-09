@@ -24,7 +24,7 @@ import { UptimeSection } from "../components/admin/UptimeSection";
 import { AlertSettingsPanel } from "../components/admin/AlertSettingsPanel";
 
 export const Admin: React.FC = () => {
-  const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
+  const API_BASE = (import.meta.env.VITE_API_URL || "https://api.noblesweb.design").replace(/\/$/, "");
   const DOCUSEAL_EMBED_URL = import.meta.env.VITE_DOCUSEAL_EMBED_URL || "https://www.docuseal.com/docs/embed";
   const navigate = useNavigate();
 
@@ -392,7 +392,7 @@ export const Admin: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/admin/projects`, { credentials: "include" });
       const data = await res.json();
       if (data.projects) setProjects(data.projects);
-    } catch {}
+    } catch { }
   };
 
   const refreshLeads = async (filters = leadFilters) => {
@@ -732,7 +732,7 @@ export const Admin: React.FC = () => {
       refreshProjects();
       setAssignRole("");
       setProjectStatus("Project assigned");
-    } catch {}
+    } catch { }
   };
 
   const handleUpdateProject = async (projectId: string) => {
@@ -1074,11 +1074,10 @@ export const Admin: React.FC = () => {
                   <motion.button
                     key={item.id}
                     onClick={() => setActiveView(item.id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all border ${
-                      active
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all border ${active
                         ? "bg-white/10 border-white/20 text-white shadow-lg shadow-primary/10"
                         : "border-transparent text-muted hover:text-white hover:border-white/10"
-                    }`}
+                      }`}
                     whileHover={{ x: 2 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -1656,928 +1655,924 @@ export const Admin: React.FC = () => {
               </motion.section>
             )}
 
-        {/* Projects */}
-        {activeView === "projects" && (
-          <motion.section
-            key="projects"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-            className="space-y-8"
-          >
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h1 className="text-3xl font-heading font-bold text-white">Projects</h1>
-                {projectStatus && <p className="text-sm text-muted mt-1">{projectStatus}</p>}
-              </div>
-              <Button onClick={refreshProjects} variant="outline">Refresh</Button>
-            </div>
-
-            <div className={`${panelClass} p-6 md:p-8`}>
-              <h3 className="text-xl font-bold text-white mb-4">Create Project</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input
-                  className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                  placeholder="Project name"
-                  value={newProject.name}
-                  onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                />
-                <input
-                  className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                  placeholder="Description"
-                  value={newProject.description}
-                  onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                />
-                <select
-                  className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                  value={newProject.status}
-                  onChange={(e) => setNewProject({ ...newProject, status: e.target.value })}
-                >
-                  <option value="active">Active</option>
-                  <option value="paused">Paused</option>
-                  <option value="complete">Complete</option>
-                </select>
-              </div>
-              <div className="mt-4">
-                <Button onClick={handleCreateProject} disabled={!newProject.name}>Create Project</Button>
-              </div>
-            </div>
-
-            <div className={`${panelClass} p-6 md:p-8`}>
-              <h3 className="text-xl font-bold text-white mb-4">Assign Project</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <select
-                  className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                  value={assignProjectId}
-                  onChange={(e) => setAssignProjectId(e.target.value)}
-                >
-                  <option value="">Select project</option>
-                  {projects.map((p) => (
-                    <option value={p.id} key={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <select
-                  className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                  value={assignUserId}
-                  onChange={(e) => setAssignUserId(e.target.value)}
-                >
-                  <option value="">Select client</option>
-                  {clients.map((c) => (
-                    <option value={c.id} key={c.id}>{c.name || c.email}</option>
-                  ))}
-                </select>
-                <input
-                  className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                  placeholder="Role (optional)"
-                  value={assignRole}
-                  onChange={(e) => setAssignRole(e.target.value)}
-                />
-                <Button onClick={handleAssignProject} disabled={!assignProjectId || !assignUserId}>Assign</Button>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {projects.map((project) => (
-                <div key={project.id} className={`${panelClass} p-6 md:p-7`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-white font-bold text-lg">{project.name}</h4>
-                      <p className="text-muted text-sm">{project.description}</p>
-                    </div>
-                    <span className="px-2 py-1 rounded bg-white/10 text-muted text-xs capitalize">{project.status}</span>
-                  </div>
-                  <div className="mt-4 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Status Badge</label>
-                        <input
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).statusBadge}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), statusBadge: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Timeline</label>
-                        <input
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).timelineLabel}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), timelineLabel: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Next Milestone</label>
-                        <input
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).nextMilestone}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), nextMilestone: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Launch Date</label>
-                        <input
-                          type="date"
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).launchDate}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), launchDate: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Budget Used</label>
-                        <input
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).budgetUsed}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), budgetUsed: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Staging URL</label>
-                        <input
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).stagingUrl}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), stagingUrl: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-xs text-muted uppercase">Design System URL</label>
-                        <input
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).designSystemUrl}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), designSystemUrl: e.target.value } })}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <label className="block text-xs text-muted uppercase">Description</label>
-                        <textarea
-                          className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                          value={getProjectDraft(project).description}
-                          onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), description: e.target.value } })}
-                        />
-                      </div>
-                    </div>
-                    <Button onClick={() => handleUpdateProject(project.id)} variant="outline" size="sm">Save Project Details</Button>
-
-                    <div>
-                      <p className="text-muted text-sm mb-2">Assignments</p>
-                      <div className="flex flex-wrap gap-2">
-                        {project.assignments?.length ? project.assignments.map((a: any) => (
-                          <span key={a.id} className="px-2 py-1 rounded bg-primary/10 text-white text-xs">
-                            {a.user?.name || a.user?.email} {a.role ? `– ${a.role}` : ""}
-                          </span>
-                        )) : (
-                          <span className="text-muted text-sm">No one assigned yet.</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-muted text-sm mb-2">Recent Activity</p>
-                        <div className="flex gap-2">
-                          <input
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            placeholder="Title"
-                            value={activityDraft[project.id]?.title || ""}
-                            onChange={(e) => setActivityDraft({ ...activityDraft, [project.id]: { ...(activityDraft[project.id] || { category: "" }), title: e.target.value } })}
-                          />
-                          <input
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            placeholder="Category"
-                            value={activityDraft[project.id]?.category || ""}
-                            onChange={(e) => setActivityDraft({ ...activityDraft, [project.id]: { ...(activityDraft[project.id] || { title: "" }), category: e.target.value } })}
-                          />
-                          <Button size="sm" onClick={() => handleAddActivity(project.id)}>Add</Button>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {project.activities?.map((act: any) => (
-                          <span key={act.id} className="px-3 py-2 rounded bg-white/5 text-white text-xs flex items-center gap-2">
-                            <span className="text-muted">{new Date(act.occurredAt).toLocaleDateString()}</span>
-                            <span className="font-semibold">{act.title}</span>
-                            {act.category && <span className="text-muted">• {act.category}</span>}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-muted text-sm mb-2">Documents</p>
-                        <div className="flex flex-wrap gap-2">
-                          <input
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            placeholder="Title"
-                            value={docDraft[project.id]?.title || ""}
-                            onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { status: "", amount: "", dueDate: "", url: "" }), title: e.target.value } })}
-                          />
-                          <input
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            placeholder="Status"
-                            value={docDraft[project.id]?.status || ""}
-                            onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", amount: "", dueDate: "", url: "" }), status: e.target.value } })}
-                          />
-                          <input
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            placeholder="Amount"
-                            value={docDraft[project.id]?.amount || ""}
-                            onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", status: "", dueDate: "", url: "" }), amount: e.target.value } })}
-                          />
-                          <input
-                            type="date"
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            value={docDraft[project.id]?.dueDate || ""}
-                            onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", status: "", amount: "", url: "" }), dueDate: e.target.value } })}
-                          />
-                          <input
-                            className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
-                            placeholder="URL"
-                            value={docDraft[project.id]?.url || ""}
-                            onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", status: "", amount: "", dueDate: "" }), url: e.target.value } })}
-                          />
-                          <Button size="sm" onClick={() => handleAddDoc(project.id)}>Add</Button>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {project.documents?.map((doc: any) => (
-                          <span key={doc.id} className="px-3 py-2 rounded bg-white/5 text-white text-xs flex items-center gap-2">
-                            <span className="font-semibold">{doc.title}</span>
-                            {doc.status && <span className="text-muted">• {doc.status}</span>}
-                            {doc.amount ? <span className="text-muted">• ${doc.amount}</span> : null}
-                            {doc.dueDate ? <span className="text-muted">• Due {new Date(doc.dueDate).toLocaleDateString()}</span> : null}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </motion.section>
-        )}
-
-        {/* Contracts */}
-        {activeView === "contracts" && (
-          <motion.section
-            key="contracts"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-            className="space-y-8"
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-3xl font-heading font-bold text-white">Contracts</h1>
-              <div className="flex gap-2">
-                <Button onClick={refreshContracts} variant="outline" className="flex items-center gap-2">
-                  <RefreshCw size={16} /> Refresh
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-surface border border-white/10 rounded-xl p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-white font-bold text-lg">New Contract</h3>
-                    <p className="text-muted text-sm">
-                      Create the contract text record. PDF templates and signatures are handled through DocuSeal Cloud Embed.
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <input
-                    className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
-                    placeholder="Contract title"
-                    value={contractForm.title}
-                    onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })}
-                  />
-                  <input
-                    className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
-                    placeholder="Version (e.g. 1.0)"
-                    value={contractForm.version}
-                    onChange={(e) => setContractForm({ ...contractForm, version: e.target.value })}
-                  />
-                  <textarea
-                    className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm h-48"
-                    placeholder="Paste full contract text..."
-                    value={contractForm.body}
-                    onChange={(e) => setContractForm({ ...contractForm, body: e.target.value })}
-                  />
-
-                  <div className="space-y-2">
-                    <label className="block text-xs text-muted uppercase tracking-[0.18em]">DocuSeal Embed</label>
-                    <textarea
-                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm h-24"
-                      placeholder='Paste the DocuSeal iframe embed code or share URL (e.g. https://docuseal.com/d/cMNgqMeAmVc8GC)'
-                      value={contractForm.docusealEmbedUrl}
-                      onChange={(e) => setContractForm({ ...contractForm, docusealEmbedUrl: e.target.value })}
-                    />
-                    <p className="text-xs text-muted">
-                      We store the embed URL so clients can sign directly in their portal. If you paste an iframe snippet, we will extract the src automatically.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="block text-xs text-muted uppercase tracking-[0.18em]">DocuSeal Template ID (optional)</label>
-                    <input
-                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
-                      placeholder="e.g. 2183525"
-                      value={docusealTemplateId}
-                      onChange={(e) => setDocusealTemplateId(e.target.value)}
-                    />
-                    <p className="text-xs text-muted">
-                      If you only have the template ID, we’ll build the embed link (https://docuseal.com/d/ID) for you.
-                    </p>
-                  </div>
-
-                  <Button onClick={handleCreateContract} disabled={!contractForm.title || !contractForm.version || !contractForm.body}>
-                    Save Contract
-                  </Button>
-                  {contractCreateStatus && <p className="text-muted text-sm">{contractCreateStatus}</p>}
-                </div>
-              </div>
-
-                <div className="bg-surface border border-white/10 rounded-xl p-6">
-                  <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 mb-4">
-                    <p className="text-white font-semibold flex items-center gap-2">
-                    DocuSeal handles PDFs & signatures
-                    </p>
-                    <p className="text-muted text-sm mt-2">
-                    We no longer host PDF editing or placements here. Paste the DocuSeal embed link you already created and assign it to clients; signing happens in the client portal via that embed.
-                    </p>
-                    <a
-                    href={DOCUSEAL_EMBED_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 mt-3 text-sm text-primary hover:text-white underline"
-                    >
-                    Open DocuSeal embed guide
-                    </a>
-                  </div>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-white font-bold text-lg">Assign to Client</h3>
-                    <p className="text-muted text-sm">Assign a saved contract to a client for signing.</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <select
-                    className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
-                    value={assignContractId}
-                    onChange={(e) => setAssignContractId(e.target.value)}
-                  >
-                    <option value="">Select contract</option>
-                    {contracts.map((c) => (
-                      <option key={c.id} value={c.id}>{c.title} (v{c.version})</option>
-                    ))}
-                  </select>
-                  <select
-                    className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
-                    value={assignContractUserId}
-                    onChange={(e) => setAssignContractUserId(e.target.value)}
-                  >
-                    <option value="">Select client</option>
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name || c.email}</option>
-                    ))}
-                  </select>
-                  <Button onClick={handleAssignContract} disabled={!assignContractId || !assignContractUserId || contractAssignLoading}>
-                    {contractAssignLoading ? "Assigning..." : "Assign Contract"}
-                  </Button>
-                  {contractAssignStatus && <p className="text-muted text-sm">{contractAssignStatus}</p>}
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-surface border border-white/10 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-white font-bold text-lg">All Contracts</h3>
-                {contractLoading && <span className="text-muted text-sm">Loading...</span>}
-              </div>
-              {contractFetchStatus && (
-                <p className="text-amber-300 text-sm mb-2">{contractFetchStatus}</p>
-              )}
-              {contractDeleteStatus && (
-                <p className="text-muted text-sm mb-2">{contractDeleteStatus}</p>
-              )}
-              <div className="space-y-4">
-                {contracts.map((contract) => {
-                  const signedCount = (contract.assignments || []).filter((a: any) => a.status === "signed" || a.signature).length;
-                  const pendingCount = (contract.assignments || []).length - signedCount;
-                  return (
-                    <div key={contract.id} className="border border-white/10 rounded-lg p-4 bg-white/5">
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div>
-                          <p className="text-white font-semibold">{contract.title}</p>
-                          <p className="text-xs text-muted">Version {contract.version} {contract.templatePdfUrl ? "• PDF template" : ""}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-1 rounded bg-green-500/10 border border-green-500/20 text-green-300">
-                            Signed {signedCount}
-                          </span>
-                          <span className="text-xs px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 text-amber-200">
-                            Pending {pendingCount}
-                          </span>
-                          <Button
-                            variant="outline"
-                            className="px-3 py-2 text-xs"
-                            disabled={contractDeleteLoading === contract.id}
-                            onClick={() => handleDeleteContract(contract.id)}
-                          >
-                            <Trash2 size={14} className="mr-2" /> {contractDeleteLoading === contract.id ? "Deleting..." : "Delete"}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {(contract.assignments || []).length ? (
-                          contract.assignments.map((a: any) => (
-                            <span key={a.id} className="px-3 py-2 bg-background border border-white/10 rounded-lg text-xs text-white flex items-center gap-2">
-                              <span className="font-semibold">{a.user?.name || a.user?.email}</span>
-                              <span className="text-muted">
-                                {a.signature ? "Signed" : "Unsigned"}
-                              </span>
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-muted text-sm">No assignments yet.</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                {!contracts.length && (
-                  <div className="text-muted text-sm">No contracts yet. Create one above.</div>
-                )}
-              </div>
-            </div>
-          </motion.section>
-        )}
-        {/* Leads */}
-        {activeView === "leads" && (
-          <motion.section
-            key="leads"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-            className="space-y-6"
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-3xl font-heading font-bold text-white">Leads</h1>
-              <Button variant="outline" onClick={() => refreshLeads(leadFilters)} disabled={leadLoading}>
-                {leadLoading ? "Refreshing..." : "Refresh"}
-              </Button>
-            </div>
-            {leadActionStatus && <div className="mb-4 text-sm text-muted">{leadActionStatus}</div>}
-            <div className={`${panelClass} p-5 md:p-6 space-y-4`}>
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <input
-                  className="w-full md:max-w-sm bg-background border border-white/10 rounded-lg p-3 text-white"
-                  placeholder="Search by name, email, project..."
-                  value={leadFilters.query}
-                  onChange={(e) => setLeadFilters({ ...leadFilters, query: e.target.value })}
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setLeadFilters({ ...leadFilters, status: 'all' })}
-                    className={`px-3 py-2 rounded text-xs border ${
-                      leadFilters.status === 'all'
-                        ? 'bg-white text-background border-white'
-                        : 'bg-transparent text-muted border-white/10 hover:border-white/30 hover:text-white'
-                    }`}
-                  >
-                    All
-                  </button>
-                  <button
-                    onClick={() => setLeadFilters({ ...leadFilters, status: 'new' })}
-                    className={`px-3 py-2 rounded text-xs border ${
-                      leadFilters.status === 'new'
-                        ? 'bg-white text-background border-white'
-                        : 'bg-transparent text-muted border-white/10 hover:border-white/30 hover:text-white'
-                    }`}
-                  >
-                    New
-                  </button>
-                  <button
-                    onClick={() => setLeadFilters({ ...leadFilters, status: 'replied' })}
-                    className={`px-3 py-2 rounded text-xs border ${
-                      leadFilters.status === 'replied'
-                        ? 'bg-white text-background border-white'
-                        : 'bg-transparent text-muted border-white/10 hover:border-white/30 hover:text-white'
-                    }`}
-                  >
-                    Replied
-                  </button>
-                </div>
-              </div>
-
-              {leadLoading && (
-                <div className="text-xs text-muted flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={14} /> Updating leads...
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {leads
-                  .filter((lead) => {
-                    const q = leadFilters.query.toLowerCase();
-                    const matches =
-                      lead.name?.toLowerCase().includes(q) ||
-                      lead.email?.toLowerCase().includes(q) ||
-                      lead.projectType?.toLowerCase().includes(q) ||
-                      lead.notes?.toLowerCase().includes(q);
-                    const statusOk =
-                      leadFilters.status === 'all' ||
-                      (leadFilters.status === 'new' && !lead.replied) ||
-                      (leadFilters.status === 'replied' && lead.replied);
-                    return matches && statusOk;
-                  })
-                  .map((lead) => (
-                    <div key={lead.id} className="bg-background border border-white/10 rounded-xl p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-white font-semibold">{lead.name}</p>
-                          <p className="text-xs text-muted">{lead.businessName || '—'}</p>
-                        </div>
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          lead.replied
-                            ? 'bg-green-500/20 text-green-300'
-                            : 'bg-yellow-500/20 text-yellow-300'
-                        }`}>
-                          {lead.replied ? 'Replied' : 'New'}
-                        </span>
-                      </div>
-                      <div className="text-sm text-muted space-y-1 break-words">
-                        <a href={`mailto:${lead.email}`} className="text-primary hover:text-white">{lead.email}</a>
-                        <div>Project: {lead.projectType || '—'}</div>
-                        <div>Priority: {lead.priority || '—'}</div>
-                        <div>Scope: {lead.scope || '—'}</div>
-                        <div>Timeline: {lead.timeline || '—'}</div>
-                        <div>Budget: {lead.budget || '—'}</div>
-                        <div className="text-xs text-muted">
-                          {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : ''}
-                        </div>
-                      </div>
-                      {lead.notes && (
-                        <div className="text-sm text-white/80 bg-white/5 border border-white/10 rounded-lg p-3 max-h-28 overflow-y-auto whitespace-pre-line">
-                          {lead.notes}
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        <a
-                          href={`mailto:${lead.email}`}
-                          className="px-3 py-2 rounded bg-white/10 text-xs hover:bg-white/20"
-                        >
-                          Reply
-                        </a>
-                        <button
-                          onClick={() => handleMarkReplied(lead.id)}
-                          className="px-3 py-2 rounded bg-green-500/20 text-green-200 text-xs hover:bg-green-500/30"
-                        >
-                          Mark Replied
-                        </button>
-                        <button
-                          onClick={() => handleDeleteLead(lead.id)}
-                          className="px-3 py-2 rounded bg-red-500/20 text-red-200 text-xs hover:bg-red-500/30"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                {(!leads || leads.length === 0) && (
-                  <div className="text-muted text-sm">No leads yet.</div>
-                )}
-              </div>
-            </div>
-          </motion.section>
-        )}
-
-        {/* Uptime Monitoring */}
-        {activeView === "uptime" && (
-          <motion.section
-            key="uptime"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-          >
-            <UptimeSection
-              targets={uptimeTargets}
-              logs={uptimeLogs}
-              selectedTargetId={selectedTargetId}
-              loading={uptimeLoading}
-              saving={uptimeSaving}
-              statusMessage={uptimeStatus}
-              onRefresh={refreshUptimeTargets}
-              onSelect={loadUptimeLogs}
-              onSave={saveUptimeTarget}
-              onDelete={deleteUptimeTarget}
-            />
-          </motion.section>
-        )}
-
-        {/* Settings */}
-        {activeView === "settings" && (
-          <motion.section
-            key="settings"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-            className="space-y-6"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-heading font-bold text-white">Admin Settings</h1>
-                <p className="text-muted text-sm">Configure alerting and monitoring preferences.</p>
-              </div>
-            </div>
-
-            <AlertSettingsPanel
-              settings={alertSettings}
-              statusMessage={alertSettingsStatus}
-              testStatus={testAlertStatus}
-              loading={alertSettingsLoading}
-              onSave={saveAlertSettings}
-              onTest={sendTestAlert}
-            />
-          </motion.section>
-        )}
-
-        {/* Support Tickets */}
-        {activeView === "tickets" && (
-          <motion.section
-            key="tickets"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-            className="space-y-6"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-heading font-bold text-white">Support Tickets</h1>
-                <p className="text-muted text-sm">All tickets from all clients with quick status updates.</p>
-              </div>
-              <Button variant="outline" onClick={refreshAdminTickets} className="flex items-center gap-2">
-                <RefreshCw size={16} /> Refresh
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                className="bg-background border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
-                placeholder="Search title or description"
-                value={ticketsSearch}
-                onChange={(e) => setTicketsSearch(e.target.value)}
-              />
-              <select
-                className="bg-background border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
-                value={ticketsStatusFilter}
-                onChange={(e) => setTicketsStatusFilter(e.target.value)}
+            {/* Projects */}
+            {activeView === "projects" && (
+              <motion.section
+                key="projects"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+                className="space-y-8"
               >
-                <option>All</option>
-                <option>Open</option>
-                <option>In Progress</option>
-                <option>Closed</option>
-              </select>
-              <Button size="sm" onClick={refreshAdminTickets}>Apply</Button>
-              {ticketsLoading && <span className="text-xs text-muted">Loading...</span>}
-            </div>
-
-            <div className={`${panelClass} overflow-hidden`}>
-              <div className="grid grid-cols-6 text-xs uppercase text-muted px-4 py-2 border-b border-white/10 bg-white/5">
-                <span>Title</span>
-                <span>Client</span>
-                <span>Status</span>
-                <span>Priority</span>
-                <span>Category</span>
-                <span>Actions</span>
-              </div>
-              <div className="divide-y divide-white/10">
-                {adminTickets.map((t) => (
-                  <div key={t.id} className="grid grid-cols-6 px-4 py-3 text-sm items-center">
-                    <div>
-                      <p className="text-white font-semibold">{t.title}</p>
-                      <p className="text-xs text-muted line-clamp-2">{t.description}</p>
-                    </div>
-                    <div className="text-xs text-muted">
-                      {t.user?.name || t.user?.email || "Unknown"}
-                    </div>
-                    <div>
-                      <select
-                        className="bg-background border border-white/10 rounded px-2 py-1 text-xs text-white"
-                        value={t.status}
-                        onChange={(e) => updateAdminTicketStatus(t.id, e.target.value)}
-                      >
-                        <option>Open</option>
-                        <option>In Progress</option>
-                        <option>Closed</option>
-                      </select>
-                    </div>
-                    <div className="text-xs text-muted">{t.priority}</div>
-                    <div className="text-xs text-muted">{t.category}</div>
-                    <div className="text-xs text-muted">{new Date(t.createdAt).toLocaleDateString()}</div>
-                  </div>
-                ))}
-                {!adminTickets.length && (
-                  <div className="px-4 py-6 text-sm text-muted">No tickets match this filter.</div>
-                )}
-              </div>
-            </div>
-          </motion.section>
-        )}
-
-        {/* Blog */}
-        {activeView === "blog" && (
-          <motion.section
-            key="blog"
-            variants={viewVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.25 }}
-            className="space-y-6"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <p className={labelClass}>Content</p>
-                <h1 className="text-3xl font-heading font-bold text-white">Blog Posts</h1>
-              </div>
-              {!isEditing && (
-                <Button
-                  onClick={() => {
-                    setIsEditing(true);
-                    setCurrentPost({});
-                  }}
-                >
-                  <Plus size={18} className="mr-2" /> New Post
-                </Button>
-              )}
-            </div>
-
-            {isEditing ? (
-              <div className={`${panelClass} p-8`}>
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold text-white">
-                    {currentPost.id ? "Edit Post" : "Create New Post"}
-                  </h2>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="text-muted hover:text-white"
-                  >
-                    Cancel
-                  </button>
+                  <div>
+                    <h1 className="text-3xl font-heading font-bold text-white">Projects</h1>
+                    {projectStatus && <p className="text-sm text-muted mt-1">{projectStatus}</p>}
+                  </div>
+                  <Button onClick={refreshProjects} variant="outline">Refresh</Button>
                 </div>
 
-                <form onSubmit={handleSavePost} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm text-muted mb-2">
-                        Title
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={currentPost.title || ""}
-                        onChange={e =>
-                          setCurrentPost({ ...currentPost, title: e.target.value })
-                        }
-                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-muted mb-2">
-                        Slug
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={currentPost.slug || ""}
-                        onChange={e =>
-                          setCurrentPost({ ...currentPost, slug: e.target.value })
-                        }
-                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <label className="block text-sm text-muted mb-2">
-                        Read Time
-                      </label>
-                      <input
-                        type="text"
-                        value={currentPost.readTime || ""}
-                        onChange={e =>
-                          setCurrentPost({
-                            ...currentPost,
-                            readTime: e.target.value,
-                          })
-                        }
-                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm text-muted mb-2">
-                        Cover Image URL
-                      </label>
-                      <input
-                        type="text"
-                        value={currentPost.image || ""}
-                        onChange={e =>
-                          setCurrentPost({ ...currentPost, image: e.target.value })
-                        }
-                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-muted mb-2">
-                      Content (HTML)
-                    </label>
-                    <textarea
-                      required
-                      value={currentPost.content || ""}
-                      onChange={e =>
-                        setCurrentPost({ ...currentPost, content: e.target.value })
-                      }
-                      className="w-full h-64 bg-background border border-white/10 rounded-lg p-3 text-white font-mono text-sm"
-                      placeholder="<p>Write your content here...</p>"
+                <div className={`${panelClass} p-6 md:p-8`}>
+                  <h3 className="text-xl font-bold text-white mb-4">Create Project</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input
+                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                      placeholder="Project name"
+                      value={newProject.name}
+                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
                     />
-                  </div>
-
-                  <div className="pt-4 flex justify-end gap-4">
-                    <Button
-                      variant="secondary"
-                      onClick={() => setIsEditing(false)}
-                      type="button"
+                    <input
+                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                      placeholder="Description"
+                      value={newProject.description}
+                      onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                    />
+                    <select
+                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                      value={newProject.status}
+                      onChange={(e) => setNewProject({ ...newProject, status: e.target.value })}
                     >
-                      Cancel
-                    </Button>
-                    <Button type="submit">Save Post</Button>
+                      <option value="active">Active</option>
+                      <option value="paused">Paused</option>
+                      <option value="complete">Complete</option>
+                    </select>
                   </div>
-                </form>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {posts.map(post => (
-                  <div
-                    key={post.id}
-                    className={`${panelClass} p-4 flex items-center justify-between hover:border-white/20 transition-colors group`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-white/5 overflow-hidden border border-white/10">
-                        {post.image && (
-                          <img
-                            src={post.image}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        )}
+                  <div className="mt-4">
+                    <Button onClick={handleCreateProject} disabled={!newProject.name}>Create Project</Button>
+                  </div>
+                </div>
+
+                <div className={`${panelClass} p-6 md:p-8`}>
+                  <h3 className="text-xl font-bold text-white mb-4">Assign Project</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <select
+                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                      value={assignProjectId}
+                      onChange={(e) => setAssignProjectId(e.target.value)}
+                    >
+                      <option value="">Select project</option>
+                      {projects.map((p) => (
+                        <option value={p.id} key={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                      value={assignUserId}
+                      onChange={(e) => setAssignUserId(e.target.value)}
+                    >
+                      <option value="">Select client</option>
+                      {clients.map((c) => (
+                        <option value={c.id} key={c.id}>{c.name || c.email}</option>
+                      ))}
+                    </select>
+                    <input
+                      className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                      placeholder="Role (optional)"
+                      value={assignRole}
+                      onChange={(e) => setAssignRole(e.target.value)}
+                    />
+                    <Button onClick={handleAssignProject} disabled={!assignProjectId || !assignUserId}>Assign</Button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {projects.map((project) => (
+                    <div key={project.id} className={`${panelClass} p-6 md:p-7`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-white font-bold text-lg">{project.name}</h4>
+                          <p className="text-muted text-sm">{project.description}</p>
+                        </div>
+                        <span className="px-2 py-1 rounded bg-white/10 text-muted text-xs capitalize">{project.status}</span>
                       </div>
+                      <div className="mt-4 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Status Badge</label>
+                            <input
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).statusBadge}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), statusBadge: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Timeline</label>
+                            <input
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).timelineLabel}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), timelineLabel: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Next Milestone</label>
+                            <input
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).nextMilestone}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), nextMilestone: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Launch Date</label>
+                            <input
+                              type="date"
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).launchDate}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), launchDate: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Budget Used</label>
+                            <input
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).budgetUsed}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), budgetUsed: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Staging URL</label>
+                            <input
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).stagingUrl}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), stagingUrl: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-xs text-muted uppercase">Design System URL</label>
+                            <input
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).designSystemUrl}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), designSystemUrl: e.target.value } })}
+                            />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <label className="block text-xs text-muted uppercase">Description</label>
+                            <textarea
+                              className="w-full bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                              value={getProjectDraft(project).description}
+                              onChange={(e) => setProjectDrafts({ ...projectDrafts, [project.id]: { ...getProjectDraft(project), description: e.target.value } })}
+                            />
+                          </div>
+                        </div>
+                        <Button onClick={() => handleUpdateProject(project.id)} variant="outline" size="sm">Save Project Details</Button>
+
+                        <div>
+                          <p className="text-muted text-sm mb-2">Assignments</p>
+                          <div className="flex flex-wrap gap-2">
+                            {project.assignments?.length ? project.assignments.map((a: any) => (
+                              <span key={a.id} className="px-2 py-1 rounded bg-primary/10 text-white text-xs">
+                                {a.user?.name || a.user?.email} {a.role ? `– ${a.role}` : ""}
+                              </span>
+                            )) : (
+                              <span className="text-muted text-sm">No one assigned yet.</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-muted text-sm mb-2">Recent Activity</p>
+                            <div className="flex gap-2">
+                              <input
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                placeholder="Title"
+                                value={activityDraft[project.id]?.title || ""}
+                                onChange={(e) => setActivityDraft({ ...activityDraft, [project.id]: { ...(activityDraft[project.id] || { category: "" }), title: e.target.value } })}
+                              />
+                              <input
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                placeholder="Category"
+                                value={activityDraft[project.id]?.category || ""}
+                                onChange={(e) => setActivityDraft({ ...activityDraft, [project.id]: { ...(activityDraft[project.id] || { title: "" }), category: e.target.value } })}
+                              />
+                              <Button size="sm" onClick={() => handleAddActivity(project.id)}>Add</Button>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {project.activities?.map((act: any) => (
+                              <span key={act.id} className="px-3 py-2 rounded bg-white/5 text-white text-xs flex items-center gap-2">
+                                <span className="text-muted">{new Date(act.occurredAt).toLocaleDateString()}</span>
+                                <span className="font-semibold">{act.title}</span>
+                                {act.category && <span className="text-muted">• {act.category}</span>}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-muted text-sm mb-2">Documents</p>
+                            <div className="flex flex-wrap gap-2">
+                              <input
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                placeholder="Title"
+                                value={docDraft[project.id]?.title || ""}
+                                onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { status: "", amount: "", dueDate: "", url: "" }), title: e.target.value } })}
+                              />
+                              <input
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                placeholder="Status"
+                                value={docDraft[project.id]?.status || ""}
+                                onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", amount: "", dueDate: "", url: "" }), status: e.target.value } })}
+                              />
+                              <input
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                placeholder="Amount"
+                                value={docDraft[project.id]?.amount || ""}
+                                onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", status: "", dueDate: "", url: "" }), amount: e.target.value } })}
+                              />
+                              <input
+                                type="date"
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                value={docDraft[project.id]?.dueDate || ""}
+                                onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", status: "", amount: "", url: "" }), dueDate: e.target.value } })}
+                              />
+                              <input
+                                className="bg-background border border-white/10 rounded-lg p-2 text-white text-sm"
+                                placeholder="URL"
+                                value={docDraft[project.id]?.url || ""}
+                                onChange={(e) => setDocDraft({ ...docDraft, [project.id]: { ...(docDraft[project.id] || { title: "", status: "", amount: "", dueDate: "" }), url: e.target.value } })}
+                              />
+                              <Button size="sm" onClick={() => handleAddDoc(project.id)}>Add</Button>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {project.documents?.map((doc: any) => (
+                              <span key={doc.id} className="px-3 py-2 rounded bg-white/5 text-white text-xs flex items-center gap-2">
+                                <span className="font-semibold">{doc.title}</span>
+                                {doc.status && <span className="text-muted">• {doc.status}</span>}
+                                {doc.amount ? <span className="text-muted">• ${doc.amount}</span> : null}
+                                {doc.dueDate ? <span className="text-muted">• Due {new Date(doc.dueDate).toLocaleDateString()}</span> : null}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.section>
+            )}
+
+            {/* Contracts */}
+            {activeView === "contracts" && (
+              <motion.section
+                key="contracts"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+                className="space-y-8"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h1 className="text-3xl font-heading font-bold text-white">Contracts</h1>
+                  <div className="flex gap-2">
+                    <Button onClick={refreshContracts} variant="outline" className="flex items-center gap-2">
+                      <RefreshCw size={16} /> Refresh
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  <div className="bg-surface border border-white/10 rounded-xl p-6">
+                    <div className="flex items-center justify-between mb-4">
                       <div>
-                        <h3 className="text-white font-bold">{post.title}</h3>
-                        <p className="text-sm text-muted">
-                          {post.date} • {post.readTime}
+                        <h3 className="text-white font-bold text-lg">New Contract</h3>
+                        <p className="text-muted text-sm">
+                          Create the contract text record. PDF templates and signatures are handled through DocuSeal Cloud Embed.
                         </p>
                       </div>
                     </div>
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => {
-                          setCurrentPost(post);
-                          setIsEditing(true);
-                        }}
-                        className="p-2 text-muted hover:text-primary hover:bg-white/5 rounded"
+                    <div className="space-y-3">
+                      <input
+                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
+                        placeholder="Contract title"
+                        value={contractForm.title}
+                        onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })}
+                      />
+                      <input
+                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
+                        placeholder="Version (e.g. 1.0)"
+                        value={contractForm.version}
+                        onChange={(e) => setContractForm({ ...contractForm, version: e.target.value })}
+                      />
+                      <textarea
+                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm h-48"
+                        placeholder="Paste full contract text..."
+                        value={contractForm.body}
+                        onChange={(e) => setContractForm({ ...contractForm, body: e.target.value })}
+                      />
+
+                      <div className="space-y-2">
+                        <label className="block text-xs text-muted uppercase tracking-[0.18em]">DocuSeal Embed</label>
+                        <textarea
+                          className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm h-24"
+                          placeholder='Paste the DocuSeal iframe embed code or share URL (e.g. https://docuseal.com/d/cMNgqMeAmVc8GC)'
+                          value={contractForm.docusealEmbedUrl}
+                          onChange={(e) => setContractForm({ ...contractForm, docusealEmbedUrl: e.target.value })}
+                        />
+                        <p className="text-xs text-muted">
+                          We store the embed URL so clients can sign directly in their portal. If you paste an iframe snippet, we will extract the src automatically.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-xs text-muted uppercase tracking-[0.18em]">DocuSeal Template ID (optional)</label>
+                        <input
+                          className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
+                          placeholder="e.g. 2183525"
+                          value={docusealTemplateId}
+                          onChange={(e) => setDocusealTemplateId(e.target.value)}
+                        />
+                        <p className="text-xs text-muted">
+                          If you only have the template ID, we’ll build the embed link (https://docuseal.com/d/ID) for you.
+                        </p>
+                      </div>
+
+                      <Button onClick={handleCreateContract} disabled={!contractForm.title || !contractForm.version || !contractForm.body}>
+                        Save Contract
+                      </Button>
+                      {contractCreateStatus && <p className="text-muted text-sm">{contractCreateStatus}</p>}
+                    </div>
+                  </div>
+
+                  <div className="bg-surface border border-white/10 rounded-xl p-6">
+                    <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 mb-4">
+                      <p className="text-white font-semibold flex items-center gap-2">
+                        DocuSeal handles PDFs & signatures
+                      </p>
+                      <p className="text-muted text-sm mt-2">
+                        We no longer host PDF editing or placements here. Paste the DocuSeal embed link you already created and assign it to clients; signing happens in the client portal via that embed.
+                      </p>
+                      <a
+                        href={DOCUSEAL_EMBED_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 mt-3 text-sm text-primary hover:text-white underline"
                       >
-                        <Edit size={18} />
+                        Open DocuSeal embed guide
+                      </a>
+                    </div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-white font-bold text-lg">Assign to Client</h3>
+                        <p className="text-muted text-sm">Assign a saved contract to a client for signing.</p>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <select
+                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
+                        value={assignContractId}
+                        onChange={(e) => setAssignContractId(e.target.value)}
+                      >
+                        <option value="">Select contract</option>
+                        {contracts.map((c) => (
+                          <option key={c.id} value={c.id}>{c.title} (v{c.version})</option>
+                        ))}
+                      </select>
+                      <select
+                        className="w-full bg-background border border-white/10 rounded-lg p-3 text-white text-sm"
+                        value={assignContractUserId}
+                        onChange={(e) => setAssignContractUserId(e.target.value)}
+                      >
+                        <option value="">Select client</option>
+                        {clients.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name || c.email}</option>
+                        ))}
+                      </select>
+                      <Button onClick={handleAssignContract} disabled={!assignContractId || !assignContractUserId || contractAssignLoading}>
+                        {contractAssignLoading ? "Assigning..." : "Assign Contract"}
+                      </Button>
+                      {contractAssignStatus && <p className="text-muted text-sm">{contractAssignStatus}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-surface border border-white/10 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-bold text-lg">All Contracts</h3>
+                    {contractLoading && <span className="text-muted text-sm">Loading...</span>}
+                  </div>
+                  {contractFetchStatus && (
+                    <p className="text-amber-300 text-sm mb-2">{contractFetchStatus}</p>
+                  )}
+                  {contractDeleteStatus && (
+                    <p className="text-muted text-sm mb-2">{contractDeleteStatus}</p>
+                  )}
+                  <div className="space-y-4">
+                    {contracts.map((contract) => {
+                      const signedCount = (contract.assignments || []).filter((a: any) => a.status === "signed" || a.signature).length;
+                      const pendingCount = (contract.assignments || []).length - signedCount;
+                      return (
+                        <div key={contract.id} className="border border-white/10 rounded-lg p-4 bg-white/5">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                              <p className="text-white font-semibold">{contract.title}</p>
+                              <p className="text-xs text-muted">Version {contract.version} {contract.templatePdfUrl ? "• PDF template" : ""}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs px-2 py-1 rounded bg-green-500/10 border border-green-500/20 text-green-300">
+                                Signed {signedCount}
+                              </span>
+                              <span className="text-xs px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 text-amber-200">
+                                Pending {pendingCount}
+                              </span>
+                              <Button
+                                variant="outline"
+                                className="px-3 py-2 text-xs"
+                                disabled={contractDeleteLoading === contract.id}
+                                onClick={() => handleDeleteContract(contract.id)}
+                              >
+                                <Trash2 size={14} className="mr-2" /> {contractDeleteLoading === contract.id ? "Deleting..." : "Delete"}
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(contract.assignments || []).length ? (
+                              contract.assignments.map((a: any) => (
+                                <span key={a.id} className="px-3 py-2 bg-background border border-white/10 rounded-lg text-xs text-white flex items-center gap-2">
+                                  <span className="font-semibold">{a.user?.name || a.user?.email}</span>
+                                  <span className="text-muted">
+                                    {a.signature ? "Signed" : "Unsigned"}
+                                  </span>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-muted text-sm">No assignments yet.</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!contracts.length && (
+                      <div className="text-muted text-sm">No contracts yet. Create one above.</div>
+                    )}
+                  </div>
+                </div>
+              </motion.section>
+            )}
+            {/* Leads */}
+            {activeView === "leads" && (
+              <motion.section
+                key="leads"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h1 className="text-3xl font-heading font-bold text-white">Leads</h1>
+                  <Button variant="outline" onClick={() => refreshLeads(leadFilters)} disabled={leadLoading}>
+                    {leadLoading ? "Refreshing..." : "Refresh"}
+                  </Button>
+                </div>
+                {leadActionStatus && <div className="mb-4 text-sm text-muted">{leadActionStatus}</div>}
+                <div className={`${panelClass} p-5 md:p-6 space-y-4`}>
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <input
+                      className="w-full md:max-w-sm bg-background border border-white/10 rounded-lg p-3 text-white"
+                      placeholder="Search by name, email, project..."
+                      value={leadFilters.query}
+                      onChange={(e) => setLeadFilters({ ...leadFilters, query: e.target.value })}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setLeadFilters({ ...leadFilters, status: 'all' })}
+                        className={`px-3 py-2 rounded text-xs border ${leadFilters.status === 'all'
+                            ? 'bg-white text-background border-white'
+                            : 'bg-transparent text-muted border-white/10 hover:border-white/30 hover:text-white'
+                          }`}
+                      >
+                        All
                       </button>
                       <button
-                        onClick={() => handleDeletePost(post.id)}
-                        className="p-2 text-muted hover:text-red-500 hover:bg-white/5 rounded"
+                        onClick={() => setLeadFilters({ ...leadFilters, status: 'new' })}
+                        className={`px-3 py-2 rounded text-xs border ${leadFilters.status === 'new'
+                            ? 'bg-white text-background border-white'
+                            : 'bg-transparent text-muted border-white/10 hover:border-white/30 hover:text-white'
+                          }`}
                       >
-                        <Trash2 size={18} />
+                        New
+                      </button>
+                      <button
+                        onClick={() => setLeadFilters({ ...leadFilters, status: 'replied' })}
+                        className={`px-3 py-2 rounded text-xs border ${leadFilters.status === 'replied'
+                            ? 'bg-white text-background border-white'
+                            : 'bg-transparent text-muted border-white/10 hover:border-white/30 hover:text-white'
+                          }`}
+                      >
+                        Replied
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  {leadLoading && (
+                    <div className="text-xs text-muted flex items-center gap-2">
+                      <Loader2 className="animate-spin" size={14} /> Updating leads...
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {leads
+                      .filter((lead) => {
+                        const q = leadFilters.query.toLowerCase();
+                        const matches =
+                          lead.name?.toLowerCase().includes(q) ||
+                          lead.email?.toLowerCase().includes(q) ||
+                          lead.projectType?.toLowerCase().includes(q) ||
+                          lead.notes?.toLowerCase().includes(q);
+                        const statusOk =
+                          leadFilters.status === 'all' ||
+                          (leadFilters.status === 'new' && !lead.replied) ||
+                          (leadFilters.status === 'replied' && lead.replied);
+                        return matches && statusOk;
+                      })
+                      .map((lead) => (
+                        <div key={lead.id} className="bg-background border border-white/10 rounded-xl p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-white font-semibold">{lead.name}</p>
+                              <p className="text-xs text-muted">{lead.businessName || '—'}</p>
+                            </div>
+                            <span className={`px-2 py-1 rounded text-xs ${lead.replied
+                                ? 'bg-green-500/20 text-green-300'
+                                : 'bg-yellow-500/20 text-yellow-300'
+                              }`}>
+                              {lead.replied ? 'Replied' : 'New'}
+                            </span>
+                          </div>
+                          <div className="text-sm text-muted space-y-1 break-words">
+                            <a href={`mailto:${lead.email}`} className="text-primary hover:text-white">{lead.email}</a>
+                            <div>Project: {lead.projectType || '—'}</div>
+                            <div>Priority: {lead.priority || '—'}</div>
+                            <div>Scope: {lead.scope || '—'}</div>
+                            <div>Timeline: {lead.timeline || '—'}</div>
+                            <div>Budget: {lead.budget || '—'}</div>
+                            <div className="text-xs text-muted">
+                              {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : ''}
+                            </div>
+                          </div>
+                          {lead.notes && (
+                            <div className="text-sm text-white/80 bg-white/5 border border-white/10 rounded-lg p-3 max-h-28 overflow-y-auto whitespace-pre-line">
+                              {lead.notes}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            <a
+                              href={`mailto:${lead.email}`}
+                              className="px-3 py-2 rounded bg-white/10 text-xs hover:bg-white/20"
+                            >
+                              Reply
+                            </a>
+                            <button
+                              onClick={() => handleMarkReplied(lead.id)}
+                              className="px-3 py-2 rounded bg-green-500/20 text-green-200 text-xs hover:bg-green-500/30"
+                            >
+                              Mark Replied
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLead(lead.id)}
+                              className="px-3 py-2 rounded bg-red-500/20 text-red-200 text-xs hover:bg-red-500/30"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    {(!leads || leads.length === 0) && (
+                      <div className="text-muted text-sm">No leads yet.</div>
+                    )}
+                  </div>
+                </div>
+              </motion.section>
             )}
-          </motion.section>
-        )}
-        </AnimatePresence>
-      </main>
+
+            {/* Uptime Monitoring */}
+            {activeView === "uptime" && (
+              <motion.section
+                key="uptime"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+              >
+                <UptimeSection
+                  targets={uptimeTargets}
+                  logs={uptimeLogs}
+                  selectedTargetId={selectedTargetId}
+                  loading={uptimeLoading}
+                  saving={uptimeSaving}
+                  statusMessage={uptimeStatus}
+                  onRefresh={refreshUptimeTargets}
+                  onSelect={loadUptimeLogs}
+                  onSave={saveUptimeTarget}
+                  onDelete={deleteUptimeTarget}
+                />
+              </motion.section>
+            )}
+
+            {/* Settings */}
+            {activeView === "settings" && (
+              <motion.section
+                key="settings"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-3xl font-heading font-bold text-white">Admin Settings</h1>
+                    <p className="text-muted text-sm">Configure alerting and monitoring preferences.</p>
+                  </div>
+                </div>
+
+                <AlertSettingsPanel
+                  settings={alertSettings}
+                  statusMessage={alertSettingsStatus}
+                  testStatus={testAlertStatus}
+                  loading={alertSettingsLoading}
+                  onSave={saveAlertSettings}
+                  onTest={sendTestAlert}
+                />
+              </motion.section>
+            )}
+
+            {/* Support Tickets */}
+            {activeView === "tickets" && (
+              <motion.section
+                key="tickets"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-3xl font-heading font-bold text-white">Support Tickets</h1>
+                    <p className="text-muted text-sm">All tickets from all clients with quick status updates.</p>
+                  </div>
+                  <Button variant="outline" onClick={refreshAdminTickets} className="flex items-center gap-2">
+                    <RefreshCw size={16} /> Refresh
+                  </Button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    className="bg-background border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                    placeholder="Search title or description"
+                    value={ticketsSearch}
+                    onChange={(e) => setTicketsSearch(e.target.value)}
+                  />
+                  <select
+                    className="bg-background border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                    value={ticketsStatusFilter}
+                    onChange={(e) => setTicketsStatusFilter(e.target.value)}
+                  >
+                    <option>All</option>
+                    <option>Open</option>
+                    <option>In Progress</option>
+                    <option>Closed</option>
+                  </select>
+                  <Button size="sm" onClick={refreshAdminTickets}>Apply</Button>
+                  {ticketsLoading && <span className="text-xs text-muted">Loading...</span>}
+                </div>
+
+                <div className={`${panelClass} overflow-hidden`}>
+                  <div className="grid grid-cols-6 text-xs uppercase text-muted px-4 py-2 border-b border-white/10 bg-white/5">
+                    <span>Title</span>
+                    <span>Client</span>
+                    <span>Status</span>
+                    <span>Priority</span>
+                    <span>Category</span>
+                    <span>Actions</span>
+                  </div>
+                  <div className="divide-y divide-white/10">
+                    {adminTickets.map((t) => (
+                      <div key={t.id} className="grid grid-cols-6 px-4 py-3 text-sm items-center">
+                        <div>
+                          <p className="text-white font-semibold">{t.title}</p>
+                          <p className="text-xs text-muted line-clamp-2">{t.description}</p>
+                        </div>
+                        <div className="text-xs text-muted">
+                          {t.user?.name || t.user?.email || "Unknown"}
+                        </div>
+                        <div>
+                          <select
+                            className="bg-background border border-white/10 rounded px-2 py-1 text-xs text-white"
+                            value={t.status}
+                            onChange={(e) => updateAdminTicketStatus(t.id, e.target.value)}
+                          >
+                            <option>Open</option>
+                            <option>In Progress</option>
+                            <option>Closed</option>
+                          </select>
+                        </div>
+                        <div className="text-xs text-muted">{t.priority}</div>
+                        <div className="text-xs text-muted">{t.category}</div>
+                        <div className="text-xs text-muted">{new Date(t.createdAt).toLocaleDateString()}</div>
+                      </div>
+                    ))}
+                    {!adminTickets.length && (
+                      <div className="px-4 py-6 text-sm text-muted">No tickets match this filter.</div>
+                    )}
+                  </div>
+                </div>
+              </motion.section>
+            )}
+
+            {/* Blog */}
+            {activeView === "blog" && (
+              <motion.section
+                key="blog"
+                variants={viewVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                transition={{ duration: 0.25 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className={labelClass}>Content</p>
+                    <h1 className="text-3xl font-heading font-bold text-white">Blog Posts</h1>
+                  </div>
+                  {!isEditing && (
+                    <Button
+                      onClick={() => {
+                        setIsEditing(true);
+                        setCurrentPost({});
+                      }}
+                    >
+                      <Plus size={18} className="mr-2" /> New Post
+                    </Button>
+                  )}
+                </div>
+
+                {isEditing ? (
+                  <div className={`${panelClass} p-8`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-bold text-white">
+                        {currentPost.id ? "Edit Post" : "Create New Post"}
+                      </h2>
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className="text-muted hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSavePost} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm text-muted mb-2">
+                            Title
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={currentPost.title || ""}
+                            onChange={e =>
+                              setCurrentPost({ ...currentPost, title: e.target.value })
+                            }
+                            className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-muted mb-2">
+                            Slug
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={currentPost.slug || ""}
+                            onChange={e =>
+                              setCurrentPost({ ...currentPost, slug: e.target.value })
+                            }
+                            className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div>
+                          <label className="block text-sm text-muted mb-2">
+                            Read Time
+                          </label>
+                          <input
+                            type="text"
+                            value={currentPost.readTime || ""}
+                            onChange={e =>
+                              setCurrentPost({
+                                ...currentPost,
+                                readTime: e.target.value,
+                              })
+                            }
+                            className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-sm text-muted mb-2">
+                            Cover Image URL
+                          </label>
+                          <input
+                            type="text"
+                            value={currentPost.image || ""}
+                            onChange={e =>
+                              setCurrentPost({ ...currentPost, image: e.target.value })
+                            }
+                            className="w-full bg-background border border-white/10 rounded-lg p-3 text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-muted mb-2">
+                          Content (HTML)
+                        </label>
+                        <textarea
+                          required
+                          value={currentPost.content || ""}
+                          onChange={e =>
+                            setCurrentPost({ ...currentPost, content: e.target.value })
+                          }
+                          className="w-full h-64 bg-background border border-white/10 rounded-lg p-3 text-white font-mono text-sm"
+                          placeholder="<p>Write your content here...</p>"
+                        />
+                      </div>
+
+                      <div className="pt-4 flex justify-end gap-4">
+                        <Button
+                          variant="secondary"
+                          onClick={() => setIsEditing(false)}
+                          type="button"
+                        >
+                          Cancel
+                        </Button>
+                        <Button type="submit">Save Post</Button>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {posts.map(post => (
+                      <div
+                        key={post.id}
+                        className={`${panelClass} p-4 flex items-center justify-between hover:border-white/20 transition-colors group`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-xl bg-white/5 overflow-hidden border border-white/10">
+                            {post.image && (
+                              <img
+                                src={post.image}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <h3 className="text-white font-bold">{post.title}</h3>
+                            <p className="text-sm text-muted">
+                              {post.date} • {post.readTime}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => {
+                              setCurrentPost(post);
+                              setIsEditing(true);
+                            }}
+                            className="p-2 text-muted hover:text-primary hover:bg-white/5 rounded"
+                          >
+                            <Edit size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePost(post.id)}
+                            className="p-2 text-muted hover:text-red-500 hover:bg-white/5 rounded"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.section>
+            )}
+          </AnimatePresence>
+        </main>
+      </div>
     </div>
-  </div>
   );
 };

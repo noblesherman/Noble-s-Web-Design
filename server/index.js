@@ -57,6 +57,7 @@ const normalizeOrigin = (value) => {
 };
 const allowedOrigins = [
   'https://noblesweb.design',
+  'https://www.noblesweb.design',
   'https://portal.noblesweb.design',
   'http://localhost:3000',
   process.env.FRONTEND_URL ? normalizeOrigin(process.env.FRONTEND_URL) : null

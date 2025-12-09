@@ -993,24 +993,32 @@ const markChargePaid = async ({ chargeId, stripeSessionId, stripeInvoiceId, host
   });
 };
 
-// BASIC MIDDLEWARE
+// CORS CONFIGURATION
 const corsOptions = {
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // For debugging/robustness, fail gracefully if not matched?
+    // User requested strict "Blocked by CORS" behavior.
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie'],
-  optionsSuccessStatus: 200,
+  optionsSuccessStatus: 200, // For legacy browser support and to ensure 200 OK
 };
+
 app.use(cors(corsOptions));
+
+// Explicitly handle preflight requests globally to ensure 200 OK
 app.options('*', cors(corsOptions));
 
-// Surface CORS denials with a clear response instead of a silent block
-app.use((err, req, res, next) => {
-  if (err?.message === 'Not allowed by CORS') {
-    return res.status(403).json({ success: false, error: 'CORS blocked for this origin' });
-  }
-  return next(err);
-});
 
 app.use(bodyParser.json({
   limit: '20mb',

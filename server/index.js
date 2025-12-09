@@ -60,8 +60,56 @@ const allowedOrigins = [
   'https://www.noblesweb.design',
   'https://portal.noblesweb.design',
   'http://localhost:3000',
+<<<<<<< ours
+  process.env.FRONTEND_URL ? normalizeOrigin(process.env.FRONTEND_URL) : null,
+  process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(normalizeOrigin) : null,
+]
+  .flat()
+  .filter(Boolean);
+
+const isAllowedOrigin = (origin) => {
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) return false;
+
+  return allowedOrigins.some((allowed) => {
+    const normalizedAllowed = normalizeOrigin(allowed);
+    if (!normalizedAllowed) return false;
+
+    if (normalizedOrigin === normalizedAllowed) return true;
+
+    // Allow any noblesweb.design subdomain (e.g., https://admin.noblesweb.design)
+    try {
+      const originHost = new URL(normalizedOrigin).hostname.replace(/^www\./i, '');
+      const allowedHost = new URL(normalizedAllowed).hostname.replace(/^www\./i, '');
+
+      if (allowedHost === 'noblesweb.design' && originHost.endsWith('.noblesweb.design')) return true;
+    } catch (_) {
+      // If URL parsing fails, fall back to strict comparison above
+    }
+
+    return false;
+  });
+=======
   process.env.FRONTEND_URL ? normalizeOrigin(process.env.FRONTEND_URL) : null
 ].filter(Boolean);
+<<<<<<< ours
+
+const isAllowedOrigin = (origin) => {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
+
+  // First, check explicit allow list.
+  if (allowedOrigins.includes(normalized)) return true;
+
+  // Allow any noblesweb.design subdomain in production to avoid accidental CORS blocks
+  // when requests originate from new hostnames (e.g., api., admin., or preview links).
+  if (normalized.endsWith('.noblesweb.design')) return true;
+
+  return false;
+>>>>>>> theirs
+};
+=======
+>>>>>>> theirs
 const normalizeCookieDomain = (value) => {
   if (!value) return undefined;
   let host = value;
